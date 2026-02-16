@@ -1,0 +1,21 @@
+# Ignore local files
+*.db
+*.log
+*.pid
+*.json
+*.session
+chart_images/
+__pycache__/
+venv/
+.venv/
+.env.local
+demo_*.py
+run_demo.py
+run_aggressive.py
+aggressive_*.db
+demo_*.db
+
+# Keep essential configs
+!railway.json
+!package.json
+!requirements.txt

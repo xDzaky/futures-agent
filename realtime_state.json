@@ -1,0 +1,15 @@
+{
+  "start_time": "2026-02-16T15:48:48.843185",
+  "consecutive_losses": 0,
+  "peak_balance": 50.0,
+  "signals_processed": 0,
+  "signals_executed": 0,
+  "signals_skipped": 0,
+  "processed_ids": [
+    "-1001553551852_84119",
+    "-1001553551852_84118",
+    "-1001433974371_27068",
+    "-1001553432571_46653",
+    "-1001553551852_84120"
+  ]
+}

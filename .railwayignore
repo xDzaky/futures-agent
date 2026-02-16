@@ -4,7 +4,6 @@
 *.pid
 *.json
 *.session
-chart_images/
 __pycache__/
 venv/
 .venv/

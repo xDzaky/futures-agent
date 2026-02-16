@@ -177,20 +177,20 @@ class TelegramChannelReader:
         self._save_processed()
         return messages
 
-    async def _download_media(self, msg, channel: str) -> Optional[str]:
-        """Download media from a message, return file path."""
+    async def _download_media(self, msg, channel: str) -> Optional[bytes]:
+        """Download media from a message, return image bytes (not saved to disk)."""
         try:
-            safe_channel = channel.replace("@", "").replace("/", "_")
-            filename = f"{safe_channel}_{msg.id}.jpg"
-            filepath = os.path.join(self.img_dir, filename)
+            from io import BytesIO
 
-            if os.path.exists(filepath):
-                return filepath
+            # Download to memory instead of disk
+            buffer = BytesIO()
+            await self.client.download_media(msg, file=buffer)
 
-            path = await self.client.download_media(msg, file=filepath)
-            if path and os.path.exists(path):
-                logger.info(f"Downloaded chart: {path}")
-                return path
+            image_bytes = buffer.getvalue()
+            if image_bytes:
+                logger.debug(f"Downloaded image from {channel} ({len(image_bytes)} bytes)")
+                return image_bytes
+
         except Exception as e:
             logger.debug(f"Media download error: {e}")
         return None

@@ -198,10 +198,6 @@ class RealtimeSignalMonitor:
         # Channel entity cache (id → config)
         self._channel_map: Dict[int, Dict] = {}
 
-        # Image directory
-        self.img_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chart_images")
-        os.makedirs(self.img_dir, exist_ok=True)
-
         sig_module.signal(sig_module.SIGINT, lambda *_: setattr(self, 'running', False))
         sig_module.signal(sig_module.SIGTERM, lambda *_: setattr(self, 'running', False))
 
@@ -474,17 +470,20 @@ class RealtimeSignalMonitor:
             return True
         return False
 
-    async def _download_image(self, msg, channel_name: str) -> Optional[str]:
-        """Download image from message."""
+    async def _download_image(self, msg, channel_name: str) -> Optional[bytes]:
+        """Download image from message as bytes (not saved to disk)."""
         try:
-            safe_name = re.sub(r'[^\w]', '_', channel_name)
-            filename = f"{safe_name}_{msg.id}.jpg"
-            filepath = os.path.join(self.img_dir, filename)
-            if os.path.exists(filepath):
-                return filepath
-            path = await self.client.download_media(msg, file=filepath)
-            if path and os.path.exists(path):
-                return path
+            from io import BytesIO
+
+            # Download to memory instead of disk
+            buffer = BytesIO()
+            await self.client.download_media(msg, file=buffer)
+
+            image_bytes = buffer.getvalue()
+            if image_bytes:
+                logger.debug(f"Downloaded image from {channel_name} ({len(image_bytes)} bytes)")
+                return image_bytes
+
         except Exception as e:
             logger.debug(f"Image download error: {e}")
         return None

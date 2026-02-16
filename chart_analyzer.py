@@ -60,7 +60,7 @@ class ChartAnalyzer:
         Analyze a Telegram message (text + images) and extract trading signal.
 
         Args:
-            message: {text, images: [path], channel, timestamp}
+            message: {text, images: [bytes or path], channel, timestamp}
 
         Returns:
             {pair, side, entry, targets, stop_loss, leverage,
@@ -88,8 +88,11 @@ class ChartAnalyzer:
         signal = self._combine_analyses(text, text_analysis, image_analysis, channel)
         return signal
 
-    def _analyze_chart_image(self, image_path: str) -> Optional[Dict]:
-        """Analyze a chart image using Gemini Vision."""
+    def _analyze_chart_image(self, image_data, mime_type: str = "image/jpeg") -> Optional[Dict]:
+        """
+        Analyze a chart image using Gemini Vision.
+        Can accept either file path (str) or image bytes (bytes).
+        """
         if not self.gemini_client:
             return None
 
@@ -99,16 +102,18 @@ class ChartAnalyzer:
             time.sleep(4 - (now - self._last_gemini_call))
 
         try:
-            # Read image
-            with open(image_path, "rb") as f:
-                image_data = f.read()
-
-            image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
-
-            # Determine MIME type
-            ext = image_path.lower().split(".")[-1]
-            mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                    "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+            # Handle both file path and binary data
+            if isinstance(image_data, str):
+                # It's a file path
+                with open(image_data, "rb") as f:
+                    image_bytes = f.read()
+                # Determine MIME type from filename
+                ext = image_data.lower().split(".")[-1]
+                mime_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                            "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+            else:
+                # It's already binary data
+                image_bytes = image_data
 
             prompt = """You are an expert crypto chart analyst. Analyze this trading chart image.
 
@@ -143,8 +148,8 @@ IMPORTANT: Respond ONLY with the JSON object, no other text."""
                         role="user",
                         parts=[
                             types.Part.from_bytes(
-                                data=image_data,
-                                mime_type=mime,
+                                data=image_bytes,
+                                mime_type=mime_type,
                             ),
                             types.Part.from_text(text=prompt),
                         ],

@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python realtime_monitor.py --balance 50 --max-leverage 20",
+    "startCommand": "python realtime_monitor.py --balance 50",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

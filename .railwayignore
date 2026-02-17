@@ -2,8 +2,6 @@
 *.db
 *.log
 *.pid
-*.json
-*.session
 __pycache__/
 venv/
 .venv/
@@ -13,6 +11,7 @@ run_demo.py
 run_aggressive.py
 aggressive_*.db
 demo_*.db
+list_channels.py
 
 # Keep essential configs
 !railway.json

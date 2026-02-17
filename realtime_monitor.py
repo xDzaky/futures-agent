@@ -87,25 +87,69 @@ def tg_get_updates(offset: int = 0, timeout: int = 30) -> List[Dict]:
 # Categorized by quality and type based on our scan
 
 SIGNAL_CHANNELS = {
+    # ══════════════════════════════════════════════════════════
     # TIER 1: Structured signals (entry/TP/SL format) — parse directly
+    # ══════════════════════════════════════════════════════════
     "@binance_360": {"tier": 1, "type": "signal", "name": "Binance 360"},
     1700533698: {"tier": 1, "type": "signal", "name": "Crypto Bulls"},
     1410449050: {"tier": 1, "type": "signal", "name": "Rose Paid Crypto Free"},
     1652601224: {"tier": 1, "type": "signal", "name": "Crypto World Updates"},
+    "@binancekillers": {"tier": 1, "type": "signal", "name": "Binance Killers"},
+    "@chiefhanfreesignal": {"tier": 1, "type": "signal", "name": "Chiefhan Official"},
+    1358469005: {"tier": 1, "type": "signal", "name": "Snipe Trading Alex"},
+    "@Whales_Pumps": {"tier": 1, "type": "signal", "name": "Whales Pumps"},
+    "@BitcoinBrosAlerts": {"tier": 1, "type": "signal", "name": "Bitcoin Bros Alerts"},
+    "@ksnsndhsjj": {"tier": 1, "type": "signal", "name": "Signal Crypto"},
+    "@brianzahir": {"tier": 1, "type": "signal", "name": "Signal Coin Abal"},
+    1895315984: {"tier": 1, "type": "signal", "name": "Crypto Spider Scalper"},
+    2377213432: {"tier": 1, "type": "signal", "name": "Alpha Scalper"},
+    "@Klausoneth": {"tier": 1, "type": "signal", "name": "Klaus on ETH"},
+    1590450482: {"tier": 1, "type": "signal", "name": "The Crypto Trader"},
+    3185887764: {"tier": 1, "type": "signal", "name": "The Crypto Ghosts"},
+    "@acmirorwell": {"tier": 1, "type": "signal", "name": "Mirror Crypto Well"},
+    1598691683: {"tier": 1, "type": "signal", "name": "Crypto Devil"},
+    "@tpmafiatradingpro": {"tier": 1, "type": "signal", "name": "Mafia Trading Pro"},
+    1391574614: {"tier": 1, "type": "signal", "name": "Bitcoin Bulls"},
+    2150935838: {"tier": 1, "type": "signal", "name": "BitcoinBoss"},
 
+    # ══════════════════════════════════════════════════════════
     # TIER 2: Analysis channels (AI interprets direction)
+    # ══════════════════════════════════════════════════════════
     "@MWcryptojournal": {"tier": 2, "type": "analysis", "name": "Wyann's Journal"},
     "@RosePremiumm": {"tier": 2, "type": "analysis", "name": "Rose Premium"},
     "@kjoacademy": {"tier": 2, "type": "analysis", "name": "KJo Academy"},
     "@evolution_trading": {"tier": 2, "type": "analysis", "name": "Evolution Trading"},
     "@cryptoteknikal_id": {"tier": 2, "type": "analysis", "name": "Crypto Teknikal"},
+    "@kjocryptochannel": {"tier": 2, "type": "analysis", "name": "KJo Backup"},
+    "@Dinotimecycle": {"tier": 2, "type": "analysis", "name": "Dino Smart Money"},
+    "@cryptocium": {"tier": 2, "type": "analysis", "name": "Cryptocium"},
+    "@Dereserchinvestment": {"tier": 2, "type": "analysis", "name": "Cryptopouuse"},
+    "@gpmeducation": {"tier": 2, "type": "analysis", "name": "GPM Trading Education"},
+    "@trade4living_id": {"tier": 2, "type": "analysis", "name": "Trade4Living"},
+    "@tradingtown": {"tier": 2, "type": "analysis", "name": "Trading Town"},
+    "@cryptooverdose": {"tier": 2, "type": "analysis", "name": "Overdoze Crypto"},
+    "@simbacryptogrup": {"tier": 2, "type": "analysis", "name": "Simba Crypto"},
+    "@JURNALTRADE_OFICIAL": {"tier": 2, "type": "analysis", "name": "Jurnal Trade"},
+    "@ceritatradingoneway": {"tier": 2, "type": "analysis", "name": "Cerita Trading"},
+    1698558457: {"tier": 2, "type": "analysis", "name": "TumbuhKaya"},
+    "@TheFomoLabs": {"tier": 2, "type": "analysis", "name": "TheFomoLabs"},
+    "@tradewithsvnday": {"tier": 2, "type": "analysis", "name": "Trade With Svnday"},
+    "@CryptoMonk_Japan": {"tier": 2, "type": "analysis", "name": "Crypto Monk"},
+    "@Crptopouuse": {"tier": 2, "type": "analysis", "name": "Pouuse Grup"},
+    "@SupXPload": {"tier": 2, "type": "analysis", "name": "IndoTraderXpert"},
 
+    # ══════════════════════════════════════════════════════════
     # TIER 3: News channels (market sentiment context)
+    # ══════════════════════════════════════════════════════════
     "@cointelegraph": {"tier": 3, "type": "news", "name": "Cointelegraph"},
     "@saillytradinggroup": {"tier": 3, "type": "news", "name": "Sailly Trading"},
     "@AshCryptoTG": {"tier": 3, "type": "news", "name": "Ash Crypto"},
     "@SM_News_24h": {"tier": 3, "type": "news", "name": "SM News"},
     "@cryptocurrency_media": {"tier": 3, "type": "news", "name": "Crypto News"},
+    1685592361: {"tier": 3, "type": "news", "name": "Crypto News ID"},
+    "@Analisa_Crypto": {"tier": 3, "type": "news", "name": "Analisa Crypto"},
+    "@cryptocircle_id": {"tier": 3, "type": "news", "name": "Crypto Circle"},
+    2201476957: {"tier": 3, "type": "news", "name": "Mikro Makro Ekonomi"},
 }
 
 # Pairs we can trade (expandable based on signals)
@@ -117,6 +161,18 @@ SUPPORTED_PAIRS = {
     "ENA", "JUP", "W", "STRK", "ZRO", "EIGEN", "MOODENG", "1000LUNC",
     "MTL", "SPX", "BAT", "STORJ", "CLO", "SIREN", "BEAT", "ZAMA",
     "MORPHO", "PIPPIN", "ASTER",
+    # Additional pairs from signal channels
+    "BCH", "INIT", "ETC", "FIL", "RUNE", "SAND", "MANA", "GALA", "AXS",
+    "IMX", "GMT", "APE", "BLUR", "ORDI", "SATS", "1000PEPE", "1000BONK",
+    "1000FLOKI", "1000SHIB", "DYDX", "SNX", "COMP", "GRT", "THETA",
+    "VET", "ICP", "ROSE", "CELO", "KAVA", "ZEC", "NEO", "XTZ",
+    "IOTA", "ONE", "ENS", "CHZ", "MASK", "YFI", "BAL", "SUSHI",
+    "1INCH", "ANKR", "SKL", "CELR", "AUDIO", "RLC", "CTSI", "BAND",
+    "LINA", "SPELL", "JOE", "HOOK", "SSV", "ID", "RDNT", "PENDLE",
+    "WLD", "CYBER", "ARKM", "NTRN", "PYTH", "JTO", "DYM", "PIXEL",
+    "PORTAL", "AEVO", "ETHFI", "BOME", "MEW", "BB", "IO", "ZK",
+    "LISTA", "ZRO", "BLAST", "NOT", "DOGS", "HMSTR", "CATI", "SCR",
+    "MOVE", "KOMA", "USUAL", "PENGU", "VANA", "ME",
 }
 
 # Filter words — skip these messages (results, promotions, etc.)
@@ -170,6 +226,8 @@ class RealtimeSignalMonitor:
         self._db = None
         self._analyzer = None
         self._parser = None
+        self._consensus_validator = None
+        self._news_correlator = None
 
         self.starting_balance = starting_balance
 
@@ -236,6 +294,20 @@ class RealtimeSignalMonitor:
             from signal_scraper import SignalParser
             self._parser = SignalParser()
         return self._parser
+
+    @property
+    def consensus_validator(self):
+        if not self._consensus_validator:
+            from consensus_validator import ConsensusValidator
+            self._consensus_validator = ConsensusValidator()
+        return self._consensus_validator
+
+    @property
+    def news_correlator(self):
+        if not self._news_correlator:
+            from news_correlator import NewsCorrelator
+            self._news_correlator = NewsCorrelator()
+        return self._news_correlator
 
     # ─── PID Lock Management ───────────────────────────
     def _check_and_create_lock(self):
@@ -382,7 +454,10 @@ class RealtimeSignalMonitor:
                 else:
                     entity = await self.client.get_entity(key)
 
-                eid = entity.id
+                # Use get_peer_id to get the "marked" ID that matches event.chat_id
+                # Channels: -100XXXXXXXXXX, Users: positive, Chats: negative
+                from telethon.utils import get_peer_id
+                eid = get_peer_id(entity)
                 title = getattr(entity, 'title', str(key))
                 config["entity"] = entity
                 config["title"] = title
@@ -401,7 +476,7 @@ class RealtimeSignalMonitor:
             msg_key = f"{chat_id}_{msg.id}"
             
             # Debug log to catch ALL events
-            # logger.debug(f"Event received from {chat_id}: {msg.text[:30] if msg.text else 'media'}")
+            logger.info(f"EVENT from {chat_id}: {msg.text[:50] if msg.text else 'media'}")
 
 
             # Skip already processed
@@ -810,6 +885,44 @@ class RealtimeSignalMonitor:
             if entry_diff > 3.0:
                 logger.info(f"  REJECT: Price ${price:,.4f} too far from entry ${entry:,.4f} ({entry_diff:.1f}%)")
                 return False
+
+        # ─── Multi-AI Consensus Validation ────────────────
+        # Validate signal with multiple AI models before proceeding
+        consensus_result = self.consensus_validator.validate_signal(
+            signal=signal,
+            context={
+                "technical": {},  # Will be filled by TA below
+                "market": {
+                    "price": price,
+                    "pair": pair,
+                },
+                "news": self.news_context.get("summary", "")
+            }
+        )
+
+        if not consensus_result:
+            logger.info(f"  REJECT: Multi-AI consensus rejected signal")
+            return False
+
+        # Update signal with consensus data
+        signal = consensus_result
+        logger.info(f"  ✓ Consensus: {signal['confidence']:.2f} confidence")
+
+        # ─── Real-Time News Correlation ───────────────────
+        # Check if breaking news contradicts this signal
+        news_corr = self.news_correlator.correlate_signal(signal)
+
+        if news_corr.get("should_skip"):
+            logger.info(f"  REJECT: Breaking news contradicts {side} signal")
+            logger.info(f"    News: {news_corr.get('news_summary', '')}")
+            return False
+
+        # Adjust confidence based on news
+        conf_adjustment = news_corr.get("confidence_adjustment", 0.0)
+        if conf_adjustment != 0:
+            old_conf = signal["confidence"]
+            signal["confidence"] = max(0.0, min(1.0, old_conf + conf_adjustment))
+            logger.info(f"  News adjustment: {old_conf:.2f} → {signal['confidence']:.2f} ({conf_adjustment:+.2f})")
 
         # ─── TA confirmation ──────────────────────────────
         ta_score = 50

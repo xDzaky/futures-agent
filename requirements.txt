@@ -9,15 +9,15 @@ numpy>=1.24.0              # Numerical computations (TA indicators computed in p
 
 # AI Models
 groq>=1.0.0                # Groq API (Llama 3.3 70B - FREE)
+google-genai>=1.0.0        # Google Gemini API (chart image analysis - FREE)
+openai>=1.0.0              # OpenAI SDK (for NVIDIA NIM API compatibility)
+tavily-python>=0.3.0       # Tavily Search API (real-time news - FREE 1000/month)
 
 # HTTP & Data
 requests>=2.31.0           # HTTP client for news APIs
 
 # Telegram signal scraping
 telethon>=1.35.0           # Telegram client for channel scraping
-
-# AI Vision (chart analysis)
-google-genai>=1.0.0        # Google Gemini API (chart image analysis - FREE)
 
 # Configuration
 python-dotenv>=1.0.0       # .env file loading

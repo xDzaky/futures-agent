@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/home/dzaky/Desktop/ai-agents/futures-agent/realtime_monitor.py", line 36, in <module>
+    from dotenv import load_dotenv
+ModuleNotFoundError: No module named 'dotenv'

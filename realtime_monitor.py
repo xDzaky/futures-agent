@@ -317,7 +317,8 @@ class RealtimeSignalMonitor:
         await self._build_channel_map()
 
         # Register event handler for ALL monitored channels
-        chats = list(self._channel_map.keys())
+        # Use entities directly for more reliable matching
+        chats = [config["entity"] for config in self._channel_map.values()]
         if not chats:
             logger.error("No channels resolved. Check SIGNAL_CHANNELS config.")
             return
@@ -398,6 +399,10 @@ class RealtimeSignalMonitor:
             chat_id = event.chat_id
             msg = event.message
             msg_key = f"{chat_id}_{msg.id}"
+            
+            # Debug log to catch ALL events
+            # logger.debug(f"Event received from {chat_id}: {msg.text[:30] if msg.text else 'media'}")
+
 
             # Skip already processed
             if msg_key in self.processed_ids:

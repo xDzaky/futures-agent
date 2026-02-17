@@ -21,3 +21,6 @@ google-genai>=1.0.0        # Google Gemini API (chart image analysis - FREE)
 
 # Configuration
 python-dotenv>=1.0.0       # .env file loading
+
+# Terminal colors (for test scripts)
+colorama>=0.4.6            # Colored terminal output

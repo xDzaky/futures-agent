@@ -131,11 +131,25 @@ TP STRATEGY:
         ob = market_ctx.get("orderbook", {})
         funding = market_ctx.get("funding", {})
         fg = market_ctx.get("fear_greed", {})
+        cmc = market_ctx.get("coinmarketcap", {})
         price = market_ctx.get("price", 0)
 
         # Extract ATR for SL/TP calculation hint
         tf_5m = technical.get("timeframes", {}).get("5m", {})
         atr_pct = tf_5m.get("atr_pct", 1.0)
+        
+        # CoinMarketCap context
+        cmc_str = ""
+        if cmc:
+            cmc_str = f"""
+  CoinMarketCap Metrics:
+    24h Volume: ${cmc.get('volume_24h', 0):,.0f}
+    Volume Change 24h: {cmc.get('volume_change_24h', 0):.1f}%
+    Price Change 1h: {cmc.get('percent_change_1h', 0):.2f}%
+    Price Change 24h: {cmc.get('percent_change_24h', 0):.2f}%
+    Price Change 7d: {cmc.get('percent_change_7d', 0):.2f}%
+    Market Cap Dominance: {cmc.get('market_cap_dominance', 0):.2f}%
+    CMC Signal: {cmc.get('signal', 'N/A')}"""
 
         prompt = f"""Analyze {symbol} for a potential futures trade:
 
@@ -149,7 +163,7 @@ MARKET CONTEXT:
   Orderbook: imbalance={ob.get('imbalance', 0):.4f} ({ob.get('signal', 'N/A')})
   Funding Rate: {funding.get('rate', 0):.6f} ({funding.get('signal', 'N/A')})
   Fear & Greed: {fg.get('value', 50)} ({fg.get('classification', 'N/A')})
-  ATR%: {atr_pct:.2f}%
+  ATR%: {atr_pct:.2f}%{cmc_str}
 
 NEWS & SENTIMENT:
 {news if news else '  No significant news detected.'}

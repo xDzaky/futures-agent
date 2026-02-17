@@ -3,9 +3,11 @@ Market Data — Real-Time & Historical Price Data
 ==================================================
 Collects data from multiple free sources:
 - Gate.io (primary — free, no geo-blocks)
-- CryptoCompare (secondary — free, rate-limited)
+- CryptoCompare (secondary — free, rate-limited, with API key support)
 - Binance API (fallback — may be blocked in some regions)
-- CoinGecko (sentiment, trending, prices)
+- CoinGecko (sentiment, trending, prices, with API key support)
+- CoinMarketCap (market metrics, trending, with API key)
+- Alpha Vantage (additional technical data)
 - Fear & Greed Index
 """
 
@@ -16,7 +18,9 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger("market_data")
 
 # CoinGecko ID map for common symbols
@@ -36,6 +40,12 @@ class MarketData:
         self._cache = {}
         self._cache_ttl = {}
         self._binance_ok = None  # None = untested, True/False = tested
+        
+        # Load API keys
+        self.coingecko_key = os.getenv("COINGECKO_API_KEY", "")
+        self.coinmarketcap_key = os.getenv("COINMARKETCAP_API_KEY", "")
+        self.cryptocompare_key = os.getenv("CRYPTOCOMPARE_API_KEY", "")
+        self.alphavantage_key = os.getenv("ALPHAVANTAGE_API_KEY", "")
 
     def _cached(self, key: str, ttl: int = 30):
         if key in self._cache and key in self._cache_ttl:
@@ -158,7 +168,7 @@ class MarketData:
 
     def _candles_cryptocompare(self, symbol: str, timeframe: str,
                                 limit: int) -> pd.DataFrame:
-        """Fetch candles from CryptoCompare (free, always available)."""
+        """Fetch candles from CryptoCompare (free, always available, with API key for better limits)."""
         coin = symbol.split("/")[0]
         quote = symbol.split("/")[1] if "/" in symbol else "USDT"
         tf_min = self._tf_to_minutes(timeframe)
@@ -174,6 +184,10 @@ class MarketData:
         raw_limit = min(raw_limit, 2000)
         url = f"https://min-api.cryptocompare.com/data/v2/{endpoint}"
         params = {"fsym": coin, "tsym": quote, "limit": raw_limit}
+        
+        # Add API key if available for better rate limits
+        if self.cryptocompare_key:
+            params["api_key"] = self.cryptocompare_key
 
         try:
             resp = requests.get(url, params=params, timeout=10)
@@ -247,13 +261,16 @@ class MarketData:
             except Exception:
                 pass
 
-        # Try CoinGecko (fast, reliable)
+        # Try CoinGecko (fast, reliable, with API key for better limits)
         coin = symbol.split("/")[0]
         cg_id = _CG_IDS.get(coin)
         if cg_id:
             try:
                 url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd"
-                resp = requests.get(url, timeout=5)
+                headers = {}
+                if self.coingecko_key:
+                    headers["x-cg-pro-api-key"] = self.coingecko_key
+                resp = requests.get(url, headers=headers, timeout=5)
                 if resp.status_code == 200:
                     price = resp.json().get(cg_id, {}).get("usd")
                     if price:
@@ -438,6 +455,105 @@ class MarketData:
             pass
         return {"value": 50, "classification": "Neutral", "signal": "NEUTRAL"}
 
+    # ─── CoinMarketCap ────────────────────────────
+
+    def get_coinmarketcap_metrics(self, symbol: str) -> Dict:
+        """Get detailed metrics from CoinMarketCap (24h volume, market cap, dominance)."""
+        cached = self._cached(f"cmc_metrics_{symbol}", ttl=180)
+        if cached:
+            return cached
+            
+        if not self.coinmarketcap_key:
+            return {}
+        
+        coin = symbol.split("/")[0]
+        
+        try:
+            # Get quote for specific cryptocurrency
+            url = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest"
+            headers = {
+                "X-CMC_PRO_API_KEY": self.coinmarketcap_key,
+                "Accept": "application/json"
+            }
+            params = {"symbol": coin, "convert": "USD"}
+            
+            resp = requests.get(url, headers=headers, params=params, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json().get("data", {}).get(coin, [])
+                if data and len(data) > 0:
+                    quote = data[0].get("quote", {}).get("USD", {})
+                    result = {
+                        "price": quote.get("price", 0),
+                        "volume_24h": quote.get("volume_24h", 0),
+                        "volume_change_24h": quote.get("volume_change_24h", 0),
+                        "percent_change_1h": quote.get("percent_change_1h", 0),
+                        "percent_change_24h": quote.get("percent_change_24h", 0),
+                        "percent_change_7d": quote.get("percent_change_7d", 0),
+                        "market_cap": quote.get("market_cap", 0),
+                        "market_cap_dominance": quote.get("market_cap_dominance", 0),
+                        "signal": self._cmc_signal(quote),
+                    }
+                    self._set_cache(f"cmc_metrics_{symbol}", result)
+                    return result
+        except Exception as e:
+            logger.debug(f"CoinMarketCap metrics error: {e}")
+        
+        return {}
+    
+    def _cmc_signal(self, quote: Dict) -> str:
+        """Generate trading signal from CoinMarketCap data."""
+        pct_1h = quote.get("percent_change_1h", 0)
+        pct_24h = quote.get("percent_change_24h", 0)
+        vol_change = quote.get("volume_change_24h", 0)
+        
+        # Strong bullish: positive momentum + volume increase
+        if pct_1h > 2 and pct_24h > 5 and vol_change > 50:
+            return "STRONG_BULLISH"
+        # Bullish: positive momentum
+        elif pct_1h > 1 and pct_24h > 3:
+            return "BULLISH"
+        # Strong bearish: negative momentum + volume increase
+        elif pct_1h < -2 and pct_24h < -5 and vol_change > 50:
+            return "STRONG_BEARISH"
+        # Bearish: negative momentum
+        elif pct_1h < -1 and pct_24h < -3:
+            return "BEARISH"
+        else:
+            return "NEUTRAL"
+    
+    def get_cmc_trending(self) -> List[Dict]:
+        """Get trending cryptocurrencies from CoinMarketCap."""
+        cached = self._cached("cmc_trending", ttl=300)
+        if cached:
+            return cached
+            
+        if not self.coinmarketcap_key:
+            return []
+        
+        try:
+            url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/trending/latest"
+            headers = {
+                "X-CMC_PRO_API_KEY": self.coinmarketcap_key,
+                "Accept": "application/json"
+            }
+            
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json().get("data", [])
+                result = []
+                for item in data[:10]:
+                    result.append({
+                        "symbol": item.get("symbol", ""),
+                        "name": item.get("name", ""),
+                        "price_change_24h": item.get("quote", {}).get("USD", {}).get("percent_change_24h", 0),
+                    })
+                self._set_cache("cmc_trending", result)
+                return result
+        except Exception as e:
+            logger.debug(f"CoinMarketCap trending error: {e}")
+        
+        return []
+
     # ─── Composite Market Context ─────────────────
 
     def get_market_context(self, symbol: str) -> Dict:
@@ -447,6 +563,7 @@ class MarketData:
         funding = self.get_funding_rate(symbol)
         oi = self.get_open_interest(symbol)
         fg = self.get_fear_greed()
+        cmc = self.get_coinmarketcap_metrics(symbol)
 
         return {
             "symbol": symbol,
@@ -455,5 +572,6 @@ class MarketData:
             "funding": funding,
             "open_interest": oi,
             "fear_greed": fg,
+            "coinmarketcap": cmc,
             "timestamp": datetime.now().isoformat(),
         }

@@ -879,50 +879,69 @@ class RealtimeSignalMonitor:
             return False
 
         # 6. Entry proximity check (if entry price specified)
+        # Allow configurable tolerance via environment variable
+        max_entry_deviation = float(os.getenv("MAX_ENTRY_DEVIATION_PCT", "5.0"))
+
         entry = signal.get("entry")
         if entry and entry > 0:
             entry_diff = abs(price - entry) / entry * 100
-            if entry_diff > 3.0:
-                logger.info(f"  REJECT: Price ${price:,.4f} too far from entry ${entry:,.4f} ({entry_diff:.1f}%)")
+            if entry_diff > max_entry_deviation:
+                logger.info(f"  REJECT: Price ${price:,.4f} too far from entry ${entry:,.4f} ({entry_diff:.1f}% > {max_entry_deviation}%)")
                 return False
 
         # ─── Multi-AI Consensus Validation ────────────────
-        # Validate signal with multiple AI models before proceeding
-        consensus_result = self.consensus_validator.validate_signal(
-            signal=signal,
-            context={
-                "technical": {},  # Will be filled by TA below
-                "market": {
-                    "price": price,
-                    "pair": pair,
-                },
-                "news": self.news_context.get("summary", "")
-            }
-        )
+        # Only run if enabled in environment
+        enable_consensus = os.getenv("ENABLE_AI_CONSENSUS", "false").lower() == "true"
 
-        if not consensus_result:
-            logger.info(f"  REJECT: Multi-AI consensus rejected signal")
-            return False
+        if enable_consensus:
+            try:
+                consensus_result = self.consensus_validator.validate_signal(
+                    signal=signal,
+                    context={
+                        "technical": {},  # Will be filled by TA below
+                        "market": {
+                            "price": price,
+                            "pair": pair,
+                        },
+                        "news": self.news_context.get("summary", "")
+                    }
+                )
 
-        # Update signal with consensus data
-        signal = consensus_result
-        logger.info(f"  ✓ Consensus: {signal['confidence']:.2f} confidence")
+                if not consensus_result:
+                    logger.info(f"  REJECT: Multi-AI consensus rejected signal")
+                    return False
+
+                # Update signal with consensus data
+                signal = consensus_result
+                logger.info(f"  ✓ Consensus: {signal.get('confidence', 0.0):.2f} confidence")
+            except Exception as e:
+                logger.error(f"  Consensus validation error: {e}")
+                # Continue without consensus if it fails
+                pass
 
         # ─── Real-Time News Correlation ───────────────────
-        # Check if breaking news contradicts this signal
-        news_corr = self.news_correlator.correlate_signal(signal)
+        # Only run if enabled in environment
+        enable_news = os.getenv("ENABLE_NEWS_CORRELATION", "false").lower() == "true"
 
-        if news_corr.get("should_skip"):
-            logger.info(f"  REJECT: Breaking news contradicts {side} signal")
-            logger.info(f"    News: {news_corr.get('news_summary', '')}")
-            return False
+        if enable_news:
+            try:
+                news_corr = self.news_correlator.correlate_signal(signal)
 
-        # Adjust confidence based on news
-        conf_adjustment = news_corr.get("confidence_adjustment", 0.0)
-        if conf_adjustment != 0:
-            old_conf = signal["confidence"]
-            signal["confidence"] = max(0.0, min(1.0, old_conf + conf_adjustment))
-            logger.info(f"  News adjustment: {old_conf:.2f} → {signal['confidence']:.2f} ({conf_adjustment:+.2f})")
+                if news_corr.get("should_skip"):
+                    logger.info(f"  REJECT: Breaking news contradicts {side} signal")
+                    logger.info(f"    News: {news_corr.get('news_summary', '')}")
+                    return False
+
+                # Adjust confidence based on news
+                conf_adjustment = news_corr.get("confidence_adjustment", 0.0)
+                if conf_adjustment != 0:
+                    old_conf = signal.get("confidence", 0.5)
+                    signal["confidence"] = max(0.0, min(1.0, old_conf + conf_adjustment))
+                    logger.info(f"  News adjustment: {old_conf:.2f} → {signal['confidence']:.2f} ({conf_adjustment:+.2f})")
+            except Exception as e:
+                logger.error(f"  News correlation error: {e}")
+                # Continue without news correlation if it fails
+                pass
 
         # ─── TA confirmation ──────────────────────────────
         ta_score = 50

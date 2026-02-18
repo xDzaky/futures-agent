@@ -1,1 +1,1 @@
-worker: bash -c "python realtime_monitor.py --balance 50"
+worker: /opt/venv/bin/python realtime_monitor.py --balance 50

@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "bash -c 'python realtime_monitor.py --balance 50'",
+    "startCommand": "/opt/venv/bin/python realtime_monitor.py --balance 50",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

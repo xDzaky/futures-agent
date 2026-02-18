@@ -1,0 +1,52 @@
+Groq:        OK
+NVIDIA NIM:  OK
+
+==================================================
+Channel: @MWcryptojournal
+Text: $BTC
+Terlihat BTC ternyata melakukan breakout dari trendlinenya. tapi volumenya cukup lemah, dan jus...
+Result: {
+  "pair": "BTC/USDT",
+  "side": "SHORT",
+  "entry": null,
+  "targets": [],
+  "stop_loss": null,
+  "leverage": null,
+  "confidence": 0.6,
+  "reasoning": "The message indicates a breakout from the trendline but with weak volume and a large red volume, leading to an expectation of a price drop.",
+  "source": "channel:@MWcryptojournal",
+  "source_type": "channel_ai"
+}
+
+==================================================
+Channel: @binance_360
+Text: 🚀 SIGNAL ALERT 🚀
+📊 SOL/USDT LONG
+💰 Entry: 85.00 - 86.50
+🎯 TP1: 90.00
+🎯 TP2: 95.00
+🎯 TP3: 100.00
+❌ SL...
+Result: {
+  "pair": "SOL/USDT",
+  "side": "LONG",
+  "entry": 85.0,
+  "targets": [
+    90.0,
+    95.0,
+    100.0
+  ],
+  "stop_loss": 82.0,
+  "leverage": 20,
+  "raw_text": "\ud83d\ude80 SIGNAL ALERT \ud83d\ude80\n\ud83d\udcca SOL/USDT LONG\n\ud83d\udcb0 Entry: 85.00 - 86.50\n\ud83c\udfaf TP1: 90.00\n\ud83c\udfaf TP2: 95.00\n\ud83c\udfaf TP3: 100.00\n\u274c SL: 82.00\n\ud83d\udcca Leverage: 20x",
+  "parsed_at": "2026-02-18T18:24:34.664234",
+  "source": "channel:@binance_360",
+  "source_type": "channel_basic"
+}
+
+==================================================
+Channel: @crypto_news
+Text: Market Update:
+Bitcoin ETF inflows mencapai $500M hari ini. Institutional buying terus meningkat.
+Fe...
+Result: No signal detected

@@ -1,0 +1,11 @@
+{
+  "name": "futures-agent",
+  "version": "1.0.0",
+  "description": "Crypto Futures AI Trading Agent",
+  "scripts": {
+    "start": "python realtime_monitor.py --balance 50"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

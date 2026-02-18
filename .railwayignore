@@ -1,19 +1,56 @@
-# Ignore local files
+# Railway ignore file
+# Database files (ephemeral FS - not needed in deployment)
 *.db
+*.sqlite
+*.sqlite3
+
+# Log files
 *.log
 *.pid
+
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+
+# Virtual environments
 venv/
 .venv/
+env/
 .env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local test/demo files
 demo_*.py
 run_demo.py
 run_aggressive.py
 aggressive_*.db
 demo_*.db
+aggressive_*.log
+demo_*.log
+aggressive_*.json
+demo_*.json
+check_btc.py
+debug_signal_flow.py
+test_*.py
 list_channels.py
+telegram_login.py
 
-# Keep essential configs
-!railway.json
-!package.json
-!requirements.txt
+# Chart images (will be generated at runtime)
+chart_images/
+
+# Session files
+*.session
+*.session-journal
+
+# Local env (use Railway variables instead)
+.env

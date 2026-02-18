@@ -2,12 +2,17 @@
 Chart & Signal Analyzer — AI-Powered Analysis
 ================================================
 Combines multiple AI models for comprehensive analysis:
-1. Google Gemini Flash (FREE) — Chart image analysis
-2. Groq Llama 3.3 70B (FREE) — Text signal analysis + Indonesian text
-3. Technical indicators — Confirmation layer
+1. NVIDIA NIM Llama 3.2 90B Vision (FREE) — Chart image analysis
+2. Groq Llama 3.3 70B (FREE)            — Text signal analysis + Indonesian text
+3. Technical indicators                  — Confirmation layer
 
 Takes raw Telegram messages (text + images) and produces
 structured trade signals with confidence scores.
+
+NOTE: Gemini replaced with NVIDIA NIM vision model because the Gemini API
+key was reported as leaked (403 PERMISSION_DENIED). NVIDIA NIM is free-tier
+and exposes an OpenAI-compatible API — no extra dependency needed beyond the
+`openai` package that is already in requirements.txt.
 """
 
 import os
@@ -26,14 +31,18 @@ logger = logging.getLogger("chart_analyzer")
 class ChartAnalyzer:
     """
     Analyzes crypto signals from Telegram channels.
-    Handles text analysis (Groq) and chart image analysis (Gemini).
+    Handles text analysis (Groq) and chart image analysis (NVIDIA NIM Vision).
     """
 
     def __init__(self):
         self.groq_key = os.getenv("GROQ_API_KEY", "")
-        self.gemini_key = os.getenv("GEMINI_API_KEY", "")
+        self.nvidia_key = os.getenv("NVIDIA_API_KEY", "")
+        self.nvidia_vision_model = os.getenv(
+            "NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct"
+        )
+        self.nvidia_base_url = "https://integrate.api.nvidia.com/v1"
 
-        # Initialize Groq
+        # Initialize Groq (text analysis)
         self.groq_client = None
         if self.groq_key:
             try:
@@ -42,18 +51,23 @@ class ChartAnalyzer:
             except Exception as e:
                 logger.warning(f"Groq init failed: {e}")
 
-        # Initialize Gemini
-        self.gemini_client = None
-        if self.gemini_key:
+        # Initialize NVIDIA NIM (vision / chart image analysis)
+        # Uses OpenAI-compatible API — no extra dependency needed.
+        self.nvidia_client = None
+        if self.nvidia_key:
             try:
-                from google import genai
-                self.gemini_client = genai.Client(api_key=self.gemini_key)
+                from openai import OpenAI
+                self.nvidia_client = OpenAI(
+                    base_url=self.nvidia_base_url,
+                    api_key=self.nvidia_key,
+                )
+                logger.info("NVIDIA NIM vision client initialised ✓")
             except Exception as e:
-                logger.warning(f"Gemini init failed: {e}")
+                logger.warning(f"NVIDIA NIM init failed: {e}")
 
         # Rate limiting
         self._last_groq_call = 0
-        self._last_gemini_call = 0
+        self._last_nvidia_call = 0
 
     def analyze_message(self, message: Dict) -> Optional[Dict]:
         """
@@ -70,9 +84,9 @@ class ChartAnalyzer:
         images = message.get("images", [])
         channel = message.get("channel", "?")
 
-        # Step 1: Analyze chart images with Gemini
+        # Step 1: Analyze chart images with NVIDIA NIM vision
         image_analysis = None
-        if images and self.gemini_client:
+        if images and self.nvidia_client:
             image_analysis = self._analyze_chart_image(images[0])
             if image_analysis:
                 logger.info(f"Chart analysis: {image_analysis.get('summary', '')[:100]}")
@@ -90,84 +104,95 @@ class ChartAnalyzer:
 
     def _analyze_chart_image(self, image_data, mime_type: str = "image/jpeg") -> Optional[Dict]:
         """
-        Analyze a chart image using Gemini Vision.
-        Can accept either file path (str) or image bytes (bytes).
+        Analyze a chart image using NVIDIA NIM Llama 3.2 90B Vision.
+        Can accept either a file path (str) or raw image bytes (bytes).
+
+        NVIDIA NIM exposes an OpenAI-compatible /chat/completions endpoint.
+        Images are sent as base64-encoded data URLs inside the message content.
         """
-        if not self.gemini_client:
+        if not self.nvidia_client:
             return None
 
-        # Rate limit: max 1 call per 4 seconds (15 RPM free tier)
+        # Rate limit: 1 call per 4 seconds (conservative for free tier)
         now = time.time()
-        if now - self._last_gemini_call < 4:
-            time.sleep(4 - (now - self._last_gemini_call))
+        wait = 4 - (now - self._last_nvidia_call)
+        if wait > 0:
+            time.sleep(wait)
 
         try:
-            # Handle both file path and binary data
+            # ── Load image bytes ──────────────────────────────────────────
             if isinstance(image_data, str):
-                # It's a file path
                 with open(image_data, "rb") as f:
                     image_bytes = f.read()
-                # Determine MIME type from filename
-                ext = image_data.lower().split(".")[-1]
-                mime_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                            "png": "image/png", "webp": "image/webp"}.get(ext, "image/jpeg")
+                ext = image_data.lower().rsplit(".", 1)[-1]
+                mime_type = {
+                    "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                    "png": "image/png",  "webp": "image/webp",
+                }.get(ext, "image/jpeg")
             else:
-                # It's already binary data
                 image_bytes = image_data
 
-            prompt = """You are an expert crypto chart analyst. Analyze this trading chart image.
+            # ── Encode to base64 data URL ─────────────────────────────────
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            data_url = f"data:{mime_type};base64,{image_b64}"
 
-Identify and respond with a JSON object:
-{
-    "pair": "BTC/USDT or whatever pair is shown",
-    "timeframe": "1h/4h/1d etc if visible",
-    "trend": "BULLISH/BEARISH/SIDEWAYS",
-    "pattern": "name of chart pattern if any (triangle, wedge, head-shoulders, channel, etc)",
-    "key_levels": {
-        "support": [list of support prices],
-        "resistance": [list of resistance prices]
-    },
-    "indicators": "describe any visible indicators (RSI, MACD, moving averages, volume)",
-    "signal": "LONG/SHORT/NEUTRAL",
-    "entry_zone": "price range for entry if applicable",
-    "targets": [list of target prices],
-    "stop_loss": "suggested stop loss level",
-    "confidence": 0.0-1.0,
-    "summary": "brief 1-2 sentence analysis"
-}
-
-Be specific about prices you can read from the chart. If you can't determine something, set it to null.
-IMPORTANT: Respond ONLY with the JSON object, no other text."""
-
-            from google.genai import types
-
-            response = self.gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_bytes(
-                                data=image_bytes,
-                                mime_type=mime_type,
-                            ),
-                            types.Part.from_text(text=prompt),
-                        ],
-                    ),
-                ],
+            prompt = (
+                "You are an expert crypto chart analyst. Analyze this trading chart image.\n\n"
+                "Identify and respond with a JSON object:\n"
+                "{\n"
+                '    "pair": "BTC/USDT or whatever pair is shown",\n'
+                '    "timeframe": "1h/4h/1d etc if visible",\n'
+                '    "trend": "BULLISH/BEARISH/SIDEWAYS",\n'
+                '    "pattern": "name of chart pattern if any (triangle, wedge, head-shoulders, channel, etc)",\n'
+                '    "key_levels": {\n'
+                '        "support": [list of support prices],\n'
+                '        "resistance": [list of resistance prices]\n'
+                "    },\n"
+                '    "indicators": "describe any visible indicators (RSI, MACD, moving averages, volume)",\n'
+                '    "signal": "LONG/SHORT/NEUTRAL",\n'
+                '    "entry_zone": "price range for entry if applicable",\n'
+                '    "targets": [list of target prices],\n'
+                '    "stop_loss": "suggested stop loss level",\n'
+                '    "confidence": 0.0-1.0,\n'
+                '    "summary": "brief 1-2 sentence analysis"\n'
+                "}\n\n"
+                "Be specific about prices you can read from the chart. "
+                "If you can't determine something, set it to null.\n"
+                "IMPORTANT: Respond ONLY with the JSON object, no other text."
             )
 
-            self._last_gemini_call = time.time()
+            # ── Call NVIDIA NIM vision model ──────────────────────────────
+            response = self.nvidia_client.chat.completions.create(
+                model=self.nvidia_vision_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": data_url},
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt,
+                            },
+                        ],
+                    }
+                ],
+                max_tokens=1024,
+                temperature=0.1,
+            )
 
-            result_text = response.text.strip()
-            # Extract JSON from response
+            self._last_nvidia_call = time.time()
+
+            result_text = response.choices[0].message.content.strip()
             result = self._extract_json(result_text)
             if result:
                 return result
 
         except Exception as e:
-            logger.error(f"Gemini chart analysis error: {e}")
-            self._last_gemini_call = time.time()
+            logger.error(f"NVIDIA NIM chart analysis error: {e}")
+            self._last_nvidia_call = time.time()
 
         return None
 
@@ -307,8 +332,8 @@ Rules:
                     signal["reasoning"] += f" | Chart shows {img_dir} (conflicts)"
 
             # If text has no direction but image does
-            if not signal["side"] and img_dir in ("LONG", "SHORT"):
-                signal["side"] = img_dir
+            if not signal["side"] and img_signal in ("LONG", "SHORT"):
+                signal["side"] = img_signal
                 signal["confidence"] = img_confidence * 0.8
 
             # Use image targets/SL if text doesn't have them
@@ -444,8 +469,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     analyzer = ChartAnalyzer()
 
-    print(f"Groq: {'OK' if analyzer.groq_client else 'NOT CONFIGURED'}")
-    print(f"Gemini: {'OK' if analyzer.gemini_client else 'NOT CONFIGURED'}")
+    print(f"Groq:        {'OK' if analyzer.groq_client  else 'NOT CONFIGURED'}")
+    print(f"NVIDIA NIM:  {'OK' if analyzer.nvidia_client else 'NOT CONFIGURED'}")
 
     # Test Indonesian text analysis
     test_messages = [

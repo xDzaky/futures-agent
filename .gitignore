@@ -1,9 +1,67 @@
+# Python
 venv/
+.venv/
 __pycache__/
 *.pyc
-.env
-*.db
-*.log
+*.pyo
+*.pyd
+.Python
 *.egg-info/
+.eggs/
+
+# Environment variables (IMPORTANT: Never commit .env)
+.env
+.env.local
+
+# Database files (ephemeral)
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+*.pid
+
+# Session files (Telegram)
+*.session
+*.session-journal
+
+# Chart images (generated at runtime)
+chart_images/
+
+# Build artifacts
 dist/
 build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Demo/test files (local only)
+demo_*.py
+run_demo.py
+run_aggressive.py
+aggressive_*.db
+demo_*.db
+aggressive_*.log
+demo_*.log
+aggressive_*.json
+demo_*.json
+check_btc.py
+debug_signal_flow.py
+test_*.py
+list_channels.py
+telegram_login.py
+
+# State files (local only)
+*_state.json
+*_output.log
+*_debug.log

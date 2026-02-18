@@ -256,8 +256,14 @@ class RealtimeSignalMonitor:
         # Channel entity cache (id → config)
         self._channel_map: Dict[int, Dict] = {}
 
-        sig_module.signal(sig_module.SIGINT, lambda *_: setattr(self, 'running', False))
-        sig_module.signal(sig_module.SIGTERM, lambda *_: setattr(self, 'running', False))
+        sig_module.signal(sig_module.SIGINT, self._graceful_shutdown)
+        sig_module.signal(sig_module.SIGTERM, self._graceful_shutdown)
+
+    def _graceful_shutdown(self, signum, frame):
+        """Handle shutdown signals gracefully."""
+        sig_name = "SIGINT" if signum == sig_module.SIGINT else "SIGTERM"
+        logger.info(f"Received {sig_name}, shutting down gracefully...")
+        self.running = False
 
     # ─── Lazy component init ────────────────────────────
     @property
@@ -427,14 +433,18 @@ class RealtimeSignalMonitor:
             # Keep running until stopped
             while self.running:
                 await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            pass
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            logger.info("Received stop signal")
+        except Exception as e:
+            logger.error(f"Unexpected error in main loop: {e}")
         finally:
             self.running = False
-            monitor_task.cancel()
-            dashboard_task.cancel()
-            news_task.cancel()
-            bot_command_task.cancel()
+            for task in [monitor_task, dashboard_task, news_task, bot_command_task]:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
             self._save_state()
             self._print_final_report()
             await self.client.disconnect()
@@ -943,13 +953,30 @@ class RealtimeSignalMonitor:
                 # Continue without news correlation if it fails
                 pass
 
-        # ─── TA confirmation ──────────────────────────────
+        # ─── TA confirmation (soft filter) ──────────────────
+        # TA adjusts leverage/confidence but does NOT hard-reject channel signals.
+        # Only hard-reject if TA STRONGLY disagrees (configurable threshold).
         ta_score = 50
+        ta_penalty = 1.0  # Multiplier for leverage (1.0 = no penalty)
         if self.use_ta:
             ta_agrees, ta_score = self._ta_confirmation(pair, side)
-            if not ta_agrees:
-                logger.info(f"  REJECT: TA disagrees (score={ta_score:.0f}, need {'>=45' if side=='LONG' else '<=55'})")
+            # Hard reject threshold: only block if TA score is extreme
+            # LONG: reject only if score < 30 (strong bearish)
+            # SHORT: reject only if score > 70 (strong bullish)
+            hard_reject_threshold = float(os.getenv("TA_HARD_REJECT_THRESHOLD", "30"))
+            if side == "LONG" and ta_score < hard_reject_threshold:
+                logger.info(f"  REJECT: TA strongly disagrees (score={ta_score:.0f} < {hard_reject_threshold:.0f})")
                 return False
+            elif side == "SHORT" and ta_score > (100 - hard_reject_threshold):
+                logger.info(f"  REJECT: TA strongly disagrees (score={ta_score:.0f} > {100 - hard_reject_threshold:.0f})")
+                return False
+
+            if not ta_agrees:
+                # Soft penalty: reduce leverage when TA mildly disagrees
+                ta_penalty = 0.6
+                logger.info(f"  TA mild disagree (score={ta_score:.0f}), reducing leverage")
+            else:
+                logger.info(f"  TA confirms {side} (score={ta_score:.0f})")
 
         # ─── News sentiment boost/penalty ─────────────────
         news_sentiment = self.news_context.get("sentiment", "NEUTRAL")
@@ -996,6 +1023,8 @@ class RealtimeSignalMonitor:
         # ─── Leverage calculation ─────────────────────────
         sig_leverage = signal.get("leverage")
         leverage = sig_leverage or self._calc_leverage(sl_dist_pct, ta_score)
+        # Apply TA penalty (reduces leverage when TA mildly disagrees)
+        leverage = max(1, int(leverage * ta_penalty))
         leverage = min(leverage, self.max_leverage)
 
         # ─── Position sizing ──────────────────────────────
@@ -1343,7 +1372,14 @@ def main():
         max_leverage=args.max_leverage,
     )
 
-    asyncio.run(monitor.run())
+    try:
+        asyncio.run(monitor.run())
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt - exiting")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

@@ -639,16 +639,76 @@ class Backtester:
 
     def _ai_confirm(self, symbol: str, ta_result: dict,
                     price: float) -> str:
-        """Ask AI to confirm TA signal (slow, uses API)."""
+        """
+        Ask AI to confirm TA signal.
+        Uses Multi-AI Consensus (Groq + NVIDIA) if available.
+        """
         if not self.ai:
             return ta_result.get("signal", "SKIP")
+            
         try:
-            market_ctx = {"symbol": symbol, "price": price}
-            result = self.ai.analyze_trade(symbol, ta_result, market_ctx, "")
-            if result:
-                return result.get("action", "SKIP")
-        except Exception:
+            # 1. Primary Analysis (Groq)
+            market_ctx = {
+                "symbol": symbol, 
+                "price": price, 
+                "orderbook": {"imbalance": 0, "signal": "NEUTRAL"}, # Sim
+                "funding": {"rate": 0.0001}
+            }
+            
+            groq_result = self.ai.analyze_trade(symbol, ta_result, market_ctx, "")
+            
+            if not groq_result or groq_result.get("action") == "SKIP":
+                return "SKIP"
+                
+            groq_action = groq_result.get("action")
+            
+            # 2. Consensus Validation (NVIDIA DeepSeek)
+            # We initialize validator here lazily or check if it exists
+            # For backtesting, we'll instantiate it once if needed, or just use it here
+            if not hasattr(self, 'validator'):
+                try:
+                    from consensus_validator import ConsensusValidator
+                    self.validator = ConsensusValidator()
+                except ImportError:
+                    self.validator = None
+                    
+            if self.validator and self.validator.enable_consensus:
+                # Construct signal object for validator
+                signal_candidate = {
+                    "pair": symbol,
+                    "side": groq_action,
+                    "entry": price,
+                    "stop_loss": price * (0.98 if groq_action == "LONG" else 1.02), # Estimate
+                    "targets": [],
+                    "leverage": groq_result.get("leverage", 5),
+                    "confidence": groq_result.get("confidence", 0.7),
+                    "reasoning": groq_result.get("reasoning", "")
+                }
+                
+                # Context strictly for validation
+                context = {
+                    "technical": ta_result,
+                    "market": market_ctx,
+                    "news": ""
+                }
+                
+                # Validate
+                validated = self.validator.validate_signal(signal_candidate, context)
+                if not validated:
+                    # Validator rejected it
+                    print(f"  {C.R}AI Validator REJECTED {symbol} {groq_action} (Consensus Failed){C.RST}")
+                    return "SKIP"
+                    
+                # Validator approved/improved it
+                print(f"  {C.G}AI Validator APPROVED {symbol} {groq_action} (Consensus Reached){C.RST}")
+                # If validated["consensus"]["agreed"] is False, it returns None, so we are safe
+                
+            return groq_action
+            
+        except Exception as e:
+            # logger.error(f"AI confirmation failed: {e}")
             pass
+            
         return ta_result.get("signal", "SKIP")
 
     # ─── Report ────────────────────────────────────────

@@ -164,12 +164,18 @@ class SignalParser:
 
     def _extract_targets(self, text: str, text_lower: str) -> List[float]:
         targets = []
-        # "TP1: 70000 TP2: 72000 TP3: 75000"
-        tp_matches = re.findall(r'tp\s*\d?\s*[:=]?\s*' + NUM_PATTERN, text_lower)
-        for m in tp_matches:
-            v = self._parse_number(m)
-            if v:
-                targets.append(v)
+        # Use multiple specific patterns to avoid \d? eating the first digit of price
+        tp_patterns = [
+            r'tp\d\s*[:=]\s*' + NUM_PATTERN,    # "TP1: 70000", "TP2=72000"
+            r'tp\s*[:=]\s*' + NUM_PATTERN,       # "TP: 70000", "TP=70000"
+            r'tp\d?\s+' + NUM_PATTERN,           # "TP 70000", "TP1 70000"
+        ]
+        for pattern in tp_patterns:
+            tp_matches = re.findall(pattern, text_lower)
+            for m in tp_matches:
+                v = self._parse_number(m)
+                if v and v not in targets:
+                    targets.append(v)
 
         if not targets:
             # "Targets: 70000 / 72000 / 75000"

@@ -1,1 +1,1 @@
-worker: python realtime_monitor.py --balance 50
+worker: bash -c "python realtime_monitor.py --balance 50"

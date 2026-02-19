@@ -1,10 +1,14 @@
 """
 Chart & Signal Analyzer — AI-Powered Analysis
 ================================================
-Combines multiple AI models for comprehensive analysis:
-1. NVIDIA NIM Llama 3.2 90B Vision (FREE) — Chart image analysis
-2. Groq Llama 3.3 70B (FREE)            — Text signal analysis + Indonesian text
-3. Technical indicators                  — Confirmation layer
+Multi-AI consensus for comprehensive analysis:
+
+AI Model Priority (tested & working):
+1. Groq Llama 3.3 70B (PRIMARY)     — Text signal analysis, 30 req/min
+2. NVIDIA DeepSeek V3.1             — Trading analysis, ~30 req/min
+3. NVIDIA Llama-3.3-70B             — Cross-validator
+4. NVIDIA Llama-3.2-90B-Vision      — Chart image analysis
+5. HF Qwen2.5-72B (LAST RESORT)     — Emergency fallback, 30 req/hour
 
 Takes raw Telegram messages (text + images) and produces
 structured trade signals with confidence scores.
@@ -13,6 +17,15 @@ NOTE: Gemini replaced with NVIDIA NIM vision model because the Gemini API
 key was reported as leaked (403 PERMISSION_DENIED). NVIDIA NIM is free-tier
 and exposes an OpenAI-compatible API — no extra dependency needed beyond the
 `openai` package that is already in requirements.txt.
+
+Tested NVIDIA Models (11 working):
+- deepseek-ai/deepseek-v3.1 ✅ (best for trading analysis)
+- meta/llama-3.3-70b-instruct ✅ (cross-validator)
+- meta/llama-3.1-70b-instruct ✅ (alternative validator)
+- qwen/qwen2.5-coder-32b-instruct ✅ (structured analysis)
+- google/gemma-2-9b-it ✅ (fast analysis)
+- microsoft/phi-3-mini-4k-instruct ✅ (quick responses)
+- meta/llama-3.2-90b-vision-instruct ✅ (chart images)
 """
 
 import os
@@ -32,27 +45,39 @@ class ChartAnalyzer:
     """
     Analyzes crypto signals from Telegram channels.
     Handles text analysis (Groq) and chart image analysis (NVIDIA NIM Vision).
+    Multi-AI consensus for better accuracy.
     """
 
     def __init__(self):
         self.groq_key = os.getenv("GROQ_API_KEY", "")
         self.nvidia_key = os.getenv("NVIDIA_API_KEY", "")
+        self.hf_key = os.getenv("HUGGINGFACE_API_KEY", "")
+        
+        # NVIDIA models (tested & working)
         self.nvidia_vision_model = os.getenv(
             "NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct"
         )
+        self.nvidia_analysis_model = os.getenv(
+            "NVIDIA_ANALYSIS_MODEL", "deepseek-ai/deepseek-v3.1"
+        )
+        self.nvidia_validator_model = os.getenv(
+            "NVIDIA_VALIDATOR_MODEL", "meta/llama-3.3-70b-instruct"
+        )
         self.nvidia_base_url = "https://integrate.api.nvidia.com/v1"
+        self.hf_base_url = "https://router.huggingface.co/v1"
+        self.hf_model = "Qwen/Qwen2.5-72B-Instruct"
 
-        # Initialize Groq (text analysis)
+        # Initialize Groq (PRIMARY - fastest, 30 req/min)
         self.groq_client = None
         if self.groq_key:
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=self.groq_key)
+                logger.info("✓ Groq Llama 3.3 70B initialized [PRIMARY]")
             except Exception as e:
                 logger.warning(f"Groq init failed: {e}")
 
-        # Initialize NVIDIA NIM (vision / chart image analysis)
-        # Uses OpenAI-compatible API — no extra dependency needed.
+        # Initialize NVIDIA NIM (multiple models for different tasks)
         self.nvidia_client = None
         if self.nvidia_key:
             try:
@@ -60,14 +85,33 @@ class ChartAnalyzer:
                 self.nvidia_client = OpenAI(
                     base_url=self.nvidia_base_url,
                     api_key=self.nvidia_key,
+                    timeout=45.0,
                 )
-                logger.info("NVIDIA NIM vision client initialised ✓")
+                logger.info(
+                    f"✓ NVIDIA NIM initialized [Vision: {self.nvidia_vision_model}, "
+                    f"Analysis: {self.nvidia_analysis_model}, Validator: {self.nvidia_validator_model}]"
+                )
             except Exception as e:
                 logger.warning(f"NVIDIA NIM init failed: {e}")
+
+        # Initialize Hugging Face (LAST RESORT - 30 req/hour)
+        self.hf_client = None
+        if self.hf_key:
+            try:
+                from openai import OpenAI
+                self.hf_client = OpenAI(
+                    base_url=self.hf_base_url,
+                    api_key=self.hf_key,
+                    timeout=60.0,
+                )
+                logger.info(f"✓ Hugging Face Qwen2.5-72B initialized [LAST RESORT]")
+            except Exception as e:
+                logger.warning(f"Hugging Face init failed: {e}")
 
         # Rate limiting
         self._last_groq_call = 0
         self._last_nvidia_call = 0
+        self._last_hf_call = 0
 
     def analyze_message(self, message: Dict) -> Optional[Dict]:
         """

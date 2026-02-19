@@ -1,292 +1,214 @@
+#!/usr/bin/env python3
 """
-Test All API Keys — Verification Script
-=========================================
-Tests all configured API keys to ensure they're working:
-- CoinGecko
-- CoinMarketCap
-- CryptoCompare
-- Alpha Vantage
-- NewsAPI
-- Finnhub
+Test all API keys for futures-agent.
+Run: python3 test_api_keys.py
 """
 
 import os
-import sys
-import requests
 from dotenv import load_dotenv
-from colorama import init, Fore, Style
 
-init(autoreset=True)
 load_dotenv()
 
-def test_coingecko():
-    """Test CoinGecko API"""
-    print(f"\n{Fore.CYAN}Testing CoinGecko API...")
-    api_key = os.getenv("COINGECKO_API_KEY", "")
-    
+
+def test_groq():
+    """Test Groq AI API - PRIMARY provider"""
+    print("\n" + "="*60)
+    print("🤖 TESTING GROQ AI API (PRIMARY)")
+    print("="*60)
+
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        print("❌ GROQ_API_KEY not found in .env")
+        return False
+
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-        headers = {}
-        if api_key:
-            headers["x-cg-pro-api-key"] = api_key
-            print(f"{Fore.YELLOW}  API Key: {api_key[:10]}...")
-        else:
-            print(f"{Fore.YELLOW}  Using free tier (no API key)")
-        
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            btc_price = data.get("bitcoin", {}).get("usd", 0)
-            print(f"{Fore.GREEN}  ✓ CoinGecko API Working")
-            print(f"{Fore.WHITE}  BTC Price: ${btc_price:,.2f}")
+        from groq import Groq
+        client = Groq(api_key=api_key)
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": "What is 2+2? Reply with just the number."}],
+            temperature=0.0,
+            max_tokens=10
+        )
+
+        if response and response.choices:
+            answer = response.choices[0].message.content.strip()
+            print(f"✅ Groq API working - Response: {answer}")
             return True
         else:
-            print(f"{Fore.RED}  ✗ Failed: HTTP {resp.status_code}")
-            print(f"{Fore.RED}  Response: {resp.text[:200]}")
+            print("❌ Groq returned no response")
             return False
+
     except Exception as e:
-        print(f"{Fore.RED}  ✗ Error: {e}")
+        print(f"❌ Groq error: {e}")
         return False
 
-def test_coinmarketcap():
-    """Test CoinMarketCap API"""
-    print(f"\n{Fore.CYAN}Testing CoinMarketCap API...")
-    api_key = os.getenv("COINMARKETCAP_API_KEY", "")
-    
+
+def test_nvidia():
+    """Test NVIDIA NIM API - Multiple models"""
+    print("\n" + "="*60)
+    print("🤖 TESTING NVIDIA NIM API")
+    print("="*60)
+
+    api_key = os.getenv("NVIDIA_API_KEY", "")
     if not api_key:
-        print(f"{Fore.YELLOW}  No API key found - skipping")
-        return False
-    
-    print(f"{Fore.YELLOW}  API Key: {api_key[:10]}...")
-    
-    try:
-        url = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest"
-        headers = {
-            "X-CMC_PRO_API_KEY": api_key,
-            "Accept": "application/json"
-        }
-        params = {"symbol": "BTC", "convert": "USD"}
-        
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json().get("data", {}).get("BTC", [])
-            if data and len(data) > 0:
-                quote = data[0].get("quote", {}).get("USD", {})
-                price = quote.get("price", 0)
-                pct_24h = quote.get("percent_change_24h", 0)
-                volume_24h = quote.get("volume_24h", 0)
-                print(f"{Fore.GREEN}  ✓ CoinMarketCap API Working")
-                print(f"{Fore.WHITE}  BTC Price: ${price:,.2f}")
-                print(f"{Fore.WHITE}  24h Change: {pct_24h:+.2f}%")
-                print(f"{Fore.WHITE}  24h Volume: ${volume_24h:,.0f}")
-                return True
-            else:
-                print(f"{Fore.RED}  ✗ No data returned")
-                return False
-        else:
-            print(f"{Fore.RED}  ✗ Failed: HTTP {resp.status_code}")
-            print(f"{Fore.RED}  Response: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        print(f"{Fore.RED}  ✗ Error: {e}")
+        print("❌ NVIDIA_API_KEY not found in .env")
         return False
 
-def test_cryptocompare():
-    """Test CryptoCompare API"""
-    print(f"\n{Fore.CYAN}Testing CryptoCompare API...")
-    api_key = os.getenv("CRYPTOCOMPARE_API_KEY", "")
-    
     try:
-        url = "https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD"
-        params = {}
-        if api_key:
-            params["api_key"] = api_key
-            print(f"{Fore.YELLOW}  API Key: {api_key[:10]}...")
-        else:
-            print(f"{Fore.YELLOW}  Using free tier (no API key)")
-        
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            btc_price = data.get("USD", 0)
-            print(f"{Fore.GREEN}  ✓ CryptoCompare API Working")
-            print(f"{Fore.WHITE}  BTC Price: ${btc_price:,.2f}")
-            
-            # Test news endpoint
-            news_url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN"
-            news_resp = requests.get(news_url, timeout=10)
-            if news_resp.status_code == 200:
-                news_data = news_resp.json().get("Data", [])
-                print(f"{Fore.GREEN}  ✓ CryptoCompare News Working ({len(news_data)} articles)")
-            
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://integrate.api.nvidia.com/v1",
+            timeout=45.0
+        )
+
+        # Test models (all tested & working)
+        models_to_test = [
+            ("deepseek-ai/deepseek-v3.1", "DeepSeek V3.1 - Trading Analysis"),
+            ("meta/llama-3.3-70b-instruct", "Llama 3.3 70B - Validator"),
+            ("meta/llama-3.2-90b-vision-instruct", "Llama 3.2 90B - Vision"),
+        ]
+
+        working = []
+        for model, description in models_to_test:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": "Say hi"}],
+                    max_tokens=5,
+                    timeout=20
+                )
+                print(f"✅ {description}: OK")
+                working.append(model)
+            except Exception as e:
+                print(f"❌ {description}: {str(e)[:50]}")
+
+        if working:
+            print(f"\n✅ NVIDIA NIM working - {len(working)}/{len(models_to_test)} models available")
             return True
         else:
-            print(f"{Fore.RED}  ✗ Failed: HTTP {resp.status_code}")
-            print(f"{Fore.RED}  Response: {resp.text[:200]}")
+            print("\n❌ NVIDIA NIM - No models working")
             return False
+
     except Exception as e:
-        print(f"{Fore.RED}  ✗ Error: {e}")
+        print(f"❌ NVIDIA NIM error: {e}")
         return False
 
-def test_alphavantage():
-    """Test Alpha Vantage API"""
-    print(f"\n{Fore.CYAN}Testing Alpha Vantage API...")
-    api_key = os.getenv("ALPHAVANTAGE_API_KEY", "")
-    
+
+def test_huggingface():
+    """Test Hugging Face Inference API"""
+    print("\n" + "="*60)
+    print("🤖 TESTING HUGGING FACE API (LAST RESORT)")
+    print("="*60)
+
+    api_key = os.getenv("HUGGINGFACE_API_KEY", "")
     if not api_key:
-        print(f"{Fore.YELLOW}  No API key found - skipping")
-        return False
-    
-    print(f"{Fore.YELLOW}  API Key: {api_key[:10]}...")
-    
-    try:
-        # Test with crypto endpoint
-        url = "https://www.alphavantage.co/query"
-        params = {
-            "function": "CURRENCY_EXCHANGE_RATE",
-            "from_currency": "BTC",
-            "to_currency": "USD",
-            "apikey": api_key
-        }
-        
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            if "Realtime Currency Exchange Rate" in data:
-                exchange = data["Realtime Currency Exchange Rate"]
-                btc_price = float(exchange.get("5. Exchange Rate", 0))
-                print(f"{Fore.GREEN}  ✓ Alpha Vantage API Working")
-                print(f"{Fore.WHITE}  BTC Price: ${btc_price:,.2f}")
-                return True
-            elif "Note" in data:
-                print(f"{Fore.YELLOW}  ⚠ Rate limit reached")
-                print(f"{Fore.YELLOW}  Note: {data['Note']}")
-                return False
-            else:
-                print(f"{Fore.RED}  ✗ Unexpected response format")
-                print(f"{Fore.RED}  Response: {data}")
-                return False
-        else:
-            print(f"{Fore.RED}  ✗ Failed: HTTP {resp.status_code}")
-            return False
-    except Exception as e:
-        print(f"{Fore.RED}  ✗ Error: {e}")
+        print("❌ HUGGINGFACE_API_KEY not found in .env")
         return False
 
-def test_newsapi():
-    """Test NewsAPI"""
-    print(f"\n{Fore.CYAN}Testing NewsAPI...")
-    api_key = os.getenv("NEWSAPI_KEY", "")
-    
-    if not api_key:
-        print(f"{Fore.YELLOW}  No API key found - skipping")
-        return False
-    
-    print(f"{Fore.YELLOW}  API Key: {api_key[:10]}...")
-    
     try:
-        url = "https://newsapi.org/v2/everything"
-        params = {
-            "q": "cryptocurrency bitcoin",
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": 5,
-            "apiKey": api_key,
-        }
-        
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            articles = data.get("articles", [])
-            print(f"{Fore.GREEN}  ✓ NewsAPI Working")
-            print(f"{Fore.WHITE}  Found {len(articles)} recent articles")
-            if articles:
-                print(f"{Fore.WHITE}  Latest: {articles[0].get('title', '')[:60]}...")
+        from openai import OpenAI
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://router.huggingface.co/v1",
+            timeout=60.0
+        )
+
+        response = client.chat.completions.create(
+            model="Qwen/Qwen2.5-72B-Instruct",
+            messages=[{"role": "user", "content": "What is 2+2? Reply with just the number."}],
+            temperature=0.0,
+            max_tokens=10
+        )
+
+        if response and response.choices:
+            answer = response.choices[0].message.content.strip()
+            print(f"✅ Hugging Face API working - Response: {answer}")
+            print(f"   Model: Qwen/Qwen2.5-72B-Instruct")
             return True
         else:
-            print(f"{Fore.RED}  ✗ Failed: HTTP {resp.status_code}")
-            print(f"{Fore.RED}  Response: {resp.text[:200]}")
+            print("❌ Hugging Face returned no response")
             return False
+
     except Exception as e:
-        print(f"{Fore.RED}  ✗ Error: {e}")
+        print(f"❌ Hugging Face error: {e}")
         return False
 
-def test_finnhub():
-    """Test Finnhub API"""
-    print(f"\n{Fore.CYAN}Testing Finnhub API...")
-    api_key = os.getenv("FINNHUB_API_KEY", "")
-    
+
+def test_tavily():
+    """Test Tavily Search API"""
+    print("\n" + "="*60)
+    print("🔍 TESTING TAVILY SEARCH API")
+    print("="*60)
+
+    api_key = os.getenv("TAVILY_API_KEY", "")
     if not api_key:
-        print(f"{Fore.YELLOW}  No API key found - skipping")
+        print("❌ TAVILY_API_KEY not found in .env")
         return False
-    
-    print(f"{Fore.YELLOW}  API Key: {api_key[:10]}...")
-    
+
     try:
-        url = "https://finnhub.io/api/v1/news"
-        params = {
-            "category": "crypto",
-            "token": api_key,
-        }
-        
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            print(f"{Fore.GREEN}  ✓ Finnhub API Working")
-            print(f"{Fore.WHITE}  Found {len(data)} crypto news items")
-            if data:
-                print(f"{Fore.WHITE}  Latest: {data[0].get('headline', '')[:60]}...")
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=api_key)
+
+        result = client.search(
+            query="Bitcoin price prediction 2025",
+            max_results=2
+        )
+
+        if result and "results" in result:
+            print(f"✅ Tavily API working - {len(result['results'])} results")
             return True
         else:
-            print(f"{Fore.RED}  ✗ Failed: HTTP {resp.status_code}")
-            print(f"{Fore.RED}  Response: {resp.text[:200]}")
+            print("❌ Tavily returned unexpected format")
             return False
+
     except Exception as e:
-        print(f"{Fore.RED}  ✗ Error: {e}")
+        print(f"❌ Tavily error: {e}")
         return False
+
 
 def main():
-    """Run all API tests"""
-    print(f"{Fore.MAGENTA}{Style.BRIGHT}")
-    print("=" * 60)
-    print("  CRYPTO TRADING API KEYS VERIFICATION")
-    print("=" * 60)
-    
-    results = {
-        "CoinGecko": test_coingecko(),
-        "CoinMarketCap": test_coinmarketcap(),
-        "CryptoCompare": test_cryptocompare(),
-        "Alpha Vantage": test_alphavantage(),
-        "NewsAPI": test_newsapi(),
-        "Finnhub": test_finnhub(),
-    }
-    
-    print(f"\n{Fore.MAGENTA}{Style.BRIGHT}")
-    print("=" * 60)
-    print("  SUMMARY")
-    print("=" * 60)
-    
-    working = 0
-    total = 0
-    
+    print("\n" + "🔑 " * 20)
+    print("FUTURES AGENT API KEY TESTS")
+    print("🔑 " * 20)
+
+    results = {}
+
+    # Test AI providers
+    print("\n📌 AI PROVIDERS:")
+    results["Groq (PRIMARY)"] = test_groq()
+    results["NVIDIA NIM"] = test_nvidia()
+    results["Hugging Face"] = test_huggingface()
+    results["Tavily Search"] = test_tavily()
+
+    # Summary
+    print("\n" + "="*60)
+    print("📊 SUMMARY")
+    print("="*60)
+
+    passed = sum(1 for v in results.values() if v)
+    total = len(results)
+
     for api, status in results.items():
-        total += 1
-        if status:
-            working += 1
-            print(f"{Fore.GREEN}  ✓ {api}")
-        else:
-            print(f"{Fore.RED}  ✗ {api}")
-    
-    print(f"\n{Fore.CYAN}  Working: {working}/{total} APIs")
-    
-    if working == total:
-        print(f"{Fore.GREEN}{Style.BRIGHT}\n  All APIs are working! 🚀")
-    elif working >= total * 0.7:
-        print(f"{Fore.YELLOW}{Style.BRIGHT}\n  Most APIs working, some issues detected ⚠️")
+        icon = "✅" if status else "❌"
+        print(f"{icon} {api}")
+
+    print(f"\n{passed}/{total} APIs working ({(passed/total)*100:.0f}%)")
+
+    if passed == total:
+        print("\n🎉 ALL APIs CONFIGURED CORRECTLY!")
+        print("✅ AI Priority: Groq (30/min) > NVIDIA > HF (30/hour)")
+        print("✅ Recommended models:")
+        print("   - deepseek-ai/deepseek-v3.1 (trading analysis)")
+        print("   - meta/llama-3.3-70b-instruct (validator)")
+        print("   - meta/llama-3.2-90b-vision-instruct (chart images)")
     else:
-        print(f"{Fore.RED}{Style.BRIGHT}\n  Multiple API issues detected ❌")
-    
-    print()
+        print("\n⚠️  Some APIs failed. Check your .env file.")
+
+    print("\n" + "="*60)
+
 
 if __name__ == "__main__":
     main()

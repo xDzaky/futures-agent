@@ -199,12 +199,13 @@ class ChartAnalyzer:
     def _analyze_text_signal(self, text: str, image_context: Optional[Dict] = None) -> Optional[Dict]:
         """Analyze signal text with Groq (supports Indonesian/English)."""
         if not self.groq_client:
-            return None
+            return self._keyword_based_analysis(text)  # Fallback
 
-        # Rate limit
+        # Rate limit with exponential backoff
         now = time.time()
-        if now - self._last_groq_call < 2:
-            time.sleep(2 - (now - self._last_groq_call))
+        wait_time = max(0, 3 - (now - self._last_groq_call))
+        if wait_time > 0:
+            time.sleep(wait_time)
 
         try:
             context = ""
@@ -261,10 +262,53 @@ Rules:
                 return result
 
         except Exception as e:
-            logger.error(f"Groq analysis error: {e}")
-            self._last_groq_call = time.time()
+            error_msg = str(e)
+            # Check for rate limit error
+            if "429" in error_msg or "rate_limit" in error_msg.lower():
+                logger.warning(f"Groq rate limit hit - using keyword fallback")
+                # Extract wait time from error if available
+                import re
+                match = re.search(r'try again in ([\d.]+)s', error_msg)
+                if match:
+                    wait_seconds = float(match.group(1))
+                    self._last_groq_call = time.time()  # Reset timer
+                    logger.info(f"Will retry after {wait_seconds:.1f}s")
+                return self._keyword_based_analysis(text)  # Fallback to keyword
+            else:
+                logger.error(f"Groq analysis error: {e}")
+                self._last_groq_call = time.time()
 
         return None
+
+    def _keyword_based_analysis(self, text: str) -> Optional[Dict]:
+        """Fallback keyword-based analysis when Groq unavailable."""
+        text_lower = text.lower()
+        
+        # Simple keyword detection
+        long_words = ['long', 'buy', 'bullish', 'pump', 'naik', 'breakout', 'call']
+        short_words = ['short', 'sell', 'bearish', 'dump', 'turun', 'breakdown', 'put']
+        
+        long_score = sum(1 for w in long_words if w in text_lower)
+        short_score = sum(1 for w in short_words if w in text_lower)
+        
+        if long_score > short_score:
+            action = "LONG"
+            confidence = min(0.6, long_score * 0.15)
+        elif short_score > long_score:
+            action = "SHORT"
+            confidence = min(0.6, short_score * 0.15)
+        else:
+            action = "SKIP"
+            confidence = 0.3
+        
+        return {
+            "action": action,
+            "confidence": confidence,
+            "is_signal": long_score > 0 or short_score > 0,
+            "is_news": False,
+            "reasoning": f"Keyword analysis: {long_score} long, {short_score} short keywords",
+            "sentiment": "BULLISH" if action == "LONG" else "BEARISH" if action == "SHORT" else "NEUTRAL",
+        }
 
     def _combine_analyses(self, raw_text: str, text_analysis: Optional[Dict],
                           image_analysis: Optional[Dict], channel: str) -> Optional[Dict]:

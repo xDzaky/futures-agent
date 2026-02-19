@@ -631,6 +631,11 @@ class RealtimeSignalMonitor:
                     "/positions - Show open positions\n"
                     "/stats - Show statistics\n"
                     "/signal LONG BTC 69000 TP 71000 SL 68000 - Manual signal\n"
+                    "/signal_limit LONG BTC 69000 TP 71000 SL 68000 - Limit order\n"
+                    "/pending - View pending limit orders\n"
+                    "/cancel_limit 123 - Cancel limit order\n"
+                    "/trending - View trending coins\n"
+                    "/research [COIN] - Trigger AI research\n"
                     "/channels - List monitored channels\n"
                     "/help - Show this help"
                 )
@@ -742,6 +747,114 @@ class RealtimeSignalMonitor:
                         tg_send("❌ Signal rejected (check logs)")
                 else:
                     tg_send("Could not parse signal. Example:\n/signal LONG BTC 69000 TP 71000 SL 68000")
+
+            elif command == "/signal_limit":
+                # Limit order: /signal_limit LONG BTC 69000 TP 71000 SL 68000
+                signal_text = text[13:].strip()  # Remove "/signal_limit"
+                if not signal_text:
+                    tg_send("Usage: /signal_limit LONG BTC 69000 TP 71000 SL 68000")
+                    return
+
+                parsed = self.parser.parse(signal_text)
+                if parsed:
+                    parsed["source"] = "manual_limit"
+                    parsed["is_limit"] = True
+                    # Create limit order via database
+                    try:
+                        result = self.db.create_limit_order(parsed)
+                        order_id = result.get("id")
+                        tg_send(f"📌 Limit order created #{order_id}\n{parsed['side']} {parsed['pair']} @ {parsed.get('entry', 'market')}\nWill execute when price is reached")
+                    except Exception as e:
+                        tg_send(f"❌ Error creating limit order: {e}")
+                else:
+                    tg_send("Could not parse signal. Example:\n/signal_limit LONG BTC 69000 TP 71000 SL 68000")
+
+            elif command == "/pending":
+                # Show pending limit orders
+                orders = self.db.get_pending_limit_orders()
+                if not orders:
+                    tg_send("📋 No pending limit orders")
+                else:
+                    msg = f"<b>Pending Limit Orders ({len(orders)})</b>\n\n"
+                    for o in orders[:10]:
+                        icon = "🟢" if o["side"] == "LONG" else "🔴"
+                        msg += f"{icon} #{o['id']} {o['side']} {o['symbol']}\n"
+                        msg += f"   Entry: ${o['entry_price']:,.4f}\n"
+                        msg += f"   Leverage: {o.get('leverage', 1)}x\n"
+                        msg += f"   SL: ${o.get('stop_loss', 'N/A')}\n"
+                        msg += f"   Created: {o.get('created_at', '?')[:16]}\n\n"
+                    if len(orders) > 10:
+                        msg += f"... and {len(orders) - 10} more\n"
+                    msg += "\nUse /cancel_limit <id> to cancel"
+                    tg_send(msg)
+
+            elif command == "/cancel_limit":
+                # Cancel limit order: /cancel_limit 123
+                try:
+                    parts = text.split()
+                    if len(parts) < 2:
+                        tg_send("Usage: /cancel_limit 123")
+                        return
+                    order_id = int(parts[1])
+                    success = self.db.cancel_limit_order(order_id)
+                    if success:
+                        tg_send(f"✅ Order #{order_id} cancelled")
+                    else:
+                        tg_send(f"❌ Order #{order_id} not found or already executed")
+                except ValueError:
+                    tg_send("Usage: /cancel_limit 123 (order ID must be a number)")
+
+            elif command == "/trending":
+                # Show trending coins
+                try:
+                    from trending_tracker import TrendingTracker
+                    tracker = TrendingTracker()
+                    trending = tracker.scan_trending()
+                    
+                    if not trending:
+                        tg_send("🔍 No trending coins detected")
+                    else:
+                        msg = f"<b>Trending Coins ({len(trending)})</b>\n\n"
+                        for t in trending[:10]:
+                            icon = "🔥" if t.get('price_change_24h', 0) > 0 else "📉"
+                            msg += f"{icon} {t['symbol']}\n"
+                            msg += f"   Score: {t.get('final_score', 0):.1f}/10\n"
+                            msg += f"   Sources: {t.get('sources', 'N/A')}\n"
+                            if t.get('price'):
+                                msg += f"   Price: ${t['price']:,.4f}\n"
+                            if t.get('price_change_24h') is not None:
+                                msg += f"   24h: {t['price_change_24h']:+.2f}%\n\n"
+                        tg_send(msg)
+                except Exception as e:
+                    tg_send(f"❌ Error getting trending: {e}")
+
+            elif command == "/research":
+                # Trigger AI research: /research or /research BTC
+                try:
+                    from ai_research_agent import AIResearchAgent
+                    agent = AIResearchAgent()
+                    
+                    # Check if specific coin requested
+                    parts = text.split()
+                    if len(parts) > 1:
+                        coin = parts[1].upper()
+                        tg_send(f"🔬 Researching {coin}...")
+                        signal = agent.manual_research(coin)
+                    else:
+                        tg_send("🔬 Running AI research cycle...")
+                        signals = agent.run_research_cycle()
+                        signal = signals[0] if signals else None
+                    
+                    if signal:
+                        msg = f"✅ AI Research Result:\n"
+                        msg += f"{signal.get('action', 'SKIP')} {signal.get('symbol', '?')}\n"
+                        msg += f"Confidence: {signal.get('confidence', 0):.0%}\n"
+                        msg += f"Reasoning: {signal.get('reasoning', 'N/A')[:100]}"
+                        tg_send(msg)
+                    else:
+                        tg_send("No high-confidence signal generated")
+                except Exception as e:
+                    tg_send(f"❌ Error: {e}")
 
             else:
                 tg_send(f"Unknown command: {command}\nSend /help for available commands")

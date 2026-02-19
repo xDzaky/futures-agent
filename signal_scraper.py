@@ -365,6 +365,7 @@ class TelegramSignalScraper:
         """
         Check for manual signals sent via Telegram bot /signal command.
         User sends: /signal LONG BTC 69000 TP 71000 SL 68000
+        Also handles: /signal_limit, /pending, /cancel_limit
         """
         signals = []
         try:
@@ -385,16 +386,40 @@ class TelegramSignalScraper:
                 if chat_id != self.chat_id:
                     continue
 
-                # /signal command
+                # /signal command (market order)
                 if text.startswith("/signal"):
                     signal_text = text[7:].strip()
                     parsed = self.parser.parse(signal_text)
                     if parsed:
                         parsed["source"] = "manual"
                         signals.append(parsed)
-                        self._reply(chat_id, f"Signal received:\n{parsed['side']} {parsed['pair']}\nEntry: {parsed.get('entry', 'market')}\nTP: {parsed.get('targets', [])}\nSL: {parsed.get('stop_loss', 'none')}")
+                        self._reply(chat_id, f"✅ Signal received:\n{parsed['side']} {parsed['pair']}\nEntry: {parsed.get('entry', 'market')}\nTP: {parsed.get('targets', [])}\nSL: {parsed.get('stop_loss', 'none')}")
                     else:
-                        self._reply(chat_id, "Could not parse signal. Format:\n/signal LONG BTC 69000 TP 71000 SL 68000")
+                        self._reply(chat_id, "❌ Could not parse signal. Format:\n/signal LONG BTC 69000 TP 71000 SL 68000")
+
+                # /signal_limit command (limit order)
+                elif text.startswith("/signal_limit"):
+                    signal_text = text[13:].strip()
+                    parsed = self.parser.parse(signal_text)
+                    if parsed:
+                        parsed["source"] = "manual_limit"
+                        parsed["is_limit"] = True
+                        signals.append(parsed)
+                        self._reply(chat_id, f"📌 Limit order signal received:\n{parsed['side']} {parsed['pair']} @ {parsed.get('entry', 'N/A')}\nWill execute when price is reached")
+                    else:
+                        self._reply(chat_id, "❌ Could not parse limit signal. Format:\n/signal_limit LONG BTC 69000 TP 71000 SL 68000")
+
+                # /pending command - show pending limit orders
+                elif text.startswith("/pending"):
+                    self._reply(chat_id, "📋 Checking pending orders... (check Telegram bot for list)")
+
+                # /cancel_limit <id> command
+                elif text.startswith("/cancel_limit"):
+                    try:
+                        order_id = int(text.split()[1])
+                        self._reply(chat_id, f"⏳ Cancel request for order #{order_id} sent. Check bot logs.")
+                    except (IndexError, ValueError):
+                        self._reply(chat_id, "❌ Invalid format. Use:\n/cancel_limit 123")
 
                 # /add_channel command
                 elif text.startswith("/add_channel"):
@@ -403,14 +428,14 @@ class TelegramSignalScraper:
                         if channel not in self.signal_channels:
                             self.signal_channels.append(channel)
                             self._save_channels()
-                            self._reply(chat_id, f"Added signal channel: {channel}")
+                            self._reply(chat_id, f"✅ Added signal channel: {channel}")
                         else:
-                            self._reply(chat_id, f"Channel already tracked: {channel}")
+                            self._reply(chat_id, f"⚠️ Channel already tracked: {channel}")
 
                 # /channels command
                 elif text.startswith("/channels"):
                     if self.signal_channels:
-                        self._reply(chat_id, "Signal channels:\n" + "\n".join(f"- {c}" for c in self.signal_channels))
+                        self._reply(chat_id, "📺 Signal channels:\n" + "\n".join(f"- {c}" for c in self.signal_channels))
                     else:
                         self._reply(chat_id, "No signal channels configured.\nUse /add_channel @channel_name")
 

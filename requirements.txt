@@ -16,6 +16,9 @@ tavily-python>=0.3.0       # Tavily Search API (real-time news - FREE 1000/month
 # HTTP & Data
 requests>=2.31.0           # HTTP client for news APIs
 
+# RSS Feed Parsing
+feedparser>=6.0.0          # Parse RSS feeds (CoinDesk, Decrypt, The Block)
+
 # Telegram signal scraping
 telethon>=1.35.0           # Telegram client for channel scraping
 

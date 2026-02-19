@@ -5,4 +5,4 @@ nixPkgs = ["python311"]
 cmds = ["pip install --no-cache-dir -r requirements.txt"]
 
 [start]
-cmd = "/opt/venv/bin/python realtime_monitor.py --balance 50"
+cmd = "bash start_railway.sh"

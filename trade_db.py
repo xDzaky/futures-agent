@@ -7,6 +7,7 @@ Similar to Polymarket agent but adapted for futures.
 
 import os
 import sqlite3
+import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -75,6 +76,35 @@ class TradeDB:
                 CREATE TABLE IF NOT EXISTS agent_state (
                     key TEXT PRIMARY KEY,
                     value TEXT
+                )
+            """)
+
+            # Limit orders table for pending entry orders
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS limit_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    entry_price REAL NOT NULL,
+                    trigger_condition TEXT DEFAULT 'LTE',
+                    quantity REAL,
+                    leverage INTEGER DEFAULT 1,
+                    margin REAL,
+                    position_value REAL,
+                    stop_loss REAL,
+                    tp1 REAL,
+                    tp2 REAL,
+                    tp3 REAL,
+                    sl_pct REAL,
+                    confidence REAL,
+                    source TEXT,
+                    signal_data TEXT,
+                    status TEXT DEFAULT 'PENDING',
+                    created_at TEXT,
+                    triggered_at TEXT,
+                    triggered_price REAL,
+                    expire_at TEXT,
+                    cycle INTEGER DEFAULT 0
                 )
             """)
 
@@ -358,4 +388,124 @@ class TradeDB:
             )
             conn.commit()
         logger.debug(f"Updated SL for trade #{trade_id} to {new_sl}")
+
+    # ─── Limit Orders ──────────────────────────────────
+
+    def create_limit_order(self, signal: dict, cycle: int = 0) -> dict:
+        """Create a pending limit order."""
+        now = datetime.now().isoformat()
+        from datetime import timedelta
+        expire_at = (datetime.now() + timedelta(hours=24)).isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO limit_orders (
+                    symbol, side, entry_price, trigger_condition,
+                    quantity, leverage, margin, position_value,
+                    stop_loss, tp1, tp2, tp3, sl_pct, confidence,
+                    source, signal_data, created_at, expire_at, cycle
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                signal["symbol"],
+                signal["side"],
+                signal["entry_price"],
+                "LTE" if signal["side"] == "LONG" else "GTE",
+                signal.get("quantity"),
+                signal.get("leverage", 1),
+                signal.get("margin"),
+                signal.get("position_value"),
+                signal.get("stop_loss"),
+                signal.get("tp1"),
+                signal.get("tp2"),
+                signal.get("tp3"),
+                signal.get("sl_pct"),
+                signal.get("confidence", 0.5),
+                signal.get("source", "limit"),
+                json.dumps(signal),
+                now,
+                expire_at,
+                cycle,
+            ))
+            order_id = cursor.lastrowid
+
+        logger.info(f"Limit order created: #{order_id} {signal['side']} {signal['symbol']} @ {signal['entry_price']}")
+        return {"id": order_id, "status": "PENDING"}
+
+    def get_pending_limit_orders(self) -> list:
+        """Get all pending limit orders."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("""
+                SELECT * FROM limit_orders 
+                WHERE status = 'PENDING' 
+                ORDER BY created_at DESC
+            """)
+            orders = []
+            for row in cur.fetchall():
+                order = dict(row)
+                if order.get("signal_data"):
+                    try:
+                        order["signal_data"] = json.loads(order["signal_data"])
+                    except:
+                        pass
+                orders.append(order)
+            return orders
+
+    def check_and_trigger_limit(self, symbol: str, current_price: float, cycle: int = 0) -> list:
+        """Check if any pending limit orders should be triggered."""
+        orders_to_trigger = []
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("""
+                SELECT * FROM limit_orders 
+                WHERE symbol = ? AND status = 'PENDING'
+            """, (symbol,))
+
+            for row in cur.fetchall():
+                order = dict(row)
+                entry_price = order["entry_price"]
+                trigger_cond = order["trigger_condition"]
+
+                should_trigger = False
+                if trigger_cond == "LTE" and current_price <= entry_price:
+                    should_trigger = True
+                elif trigger_cond == "GTE" and current_price >= entry_price:
+                    should_trigger = True
+
+                if should_trigger:
+                    now = datetime.now().isoformat()
+                    conn.execute("""
+                        UPDATE limit_orders 
+                        SET status = 'TRIGGERED', triggered_at = ?, triggered_price = ?
+                        WHERE id = ?
+                    """, (now, current_price, order["id"]))
+
+                    orders_to_trigger.append(order)
+                    logger.info(f"Limit order #{order['id']} TRIGGERED: {order['side']} {symbol} @ {current_price}")
+
+            conn.commit()
+
+        return orders_to_trigger
+
+    def cancel_limit_order(self, order_id: int) -> bool:
+        """Cancel a pending limit order."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE limit_orders SET status = 'CANCELLED' WHERE id = ? AND status = 'PENDING'
+            """, (order_id,))
+            return cursor.rowcount > 0
+
+    def cleanup_expired_limits(self, cycle: int = 0) -> int:
+        """Remove expired limit orders."""
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE limit_orders SET status = 'EXPIRED' 
+                WHERE status = 'PENDING' AND expire_at < ?
+            """, (now,))
+            cleaned = cursor.rowcount
+            if cleaned > 0:
+                logger.info(f"Cleaned up {cleaned} expired limit orders")
+            return cleaned
 

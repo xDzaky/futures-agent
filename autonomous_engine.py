@@ -34,14 +34,27 @@ from technical import TechnicalAnalyzer, ema, rsi, macd, bollinger_bands, atr, s
 logger = logging.getLogger("autonomous")
 
 
-# ─── Pairs to scan autonomously ─────────────────────────────
+# ─── Pairs to scan autonomously (50 high-volume pairs) ──────
 AUTONOMOUS_PAIRS = [
+    # Mega caps (always scan)
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
+    # Large caps
     "AVAX/USDT", "LINK/USDT", "ADA/USDT", "DOT/USDT", "MATIC/USDT",
+    "DOGE/USDT", "SUI/USDT", "TIA/USDT", "INJ/USDT", "FET/USDT",
+    "WIF/USDT", "PEPE/USDT", "NEAR/USDT", "ATOM/USDT", "ARB/USDT",
+    # Mid caps
+    "OP/USDT", "APT/USDT", "RENDER/USDT", "HBAR/USDT", "LDO/USDT",
+    "AAVE/USDT", "UNI/USDT", "ENA/USDT", "JUP/USDT", "WLD/USDT",
+    "PENDLE/USDT", "PYTH/USDT", "JTO/USDT", "ETHFI/USDT", "IO/USDT",
+    "BLUR/USDT", "DYDX/USDT", "ICP/USDT", "FIL/USDT", "RUNE/USDT",
+    "COMP/USDT", "GRT/USDT", "SNX/USDT", "THETA/USDT", "VET/USDT",
+    # Small/new caps (higher vol, from signal channels)
+    "ENSO/USDT", "BIO/USDT", "MORPHO/USDT", "MOVE/USDT", "USUAL/USDT",
+    "EIGEN/USDT", "STRK/USDT", "ALT/USDT", "PIXEL/USDT", "PORTAL/USDT",
 ]
 
 # Minimum confluence score to take a trade (0-100)
-MIN_CONFLUENCE_SCORE = 72  # High bar → fewer trades, higher WR
+MIN_CONFLUENCE_SCORE = 68  # Slightly relaxed from 72 to get more trades while still selective
 
 
 class StructureAnalyzer:
@@ -428,20 +441,28 @@ class AutonomousEngine:
         self.scan_count += 1
         logger.info(f"🤖 AUTO SCAN #{self.scan_count} — scanning {len(AUTONOMOUS_PAIRS)} pairs...")
 
-        # Global market filter: don't trade in extreme fear
+        # Global market filter using Fear & Greed
         fg = self.market.get_fear_greed()
         fg_value = fg.get("value", 50)
-        if fg_value < 15:
-            logger.info(f"🤖 AUTO SKIP: Extreme Fear (F&G={fg_value}) — market too bearish")
-            return []
-        if fg_value > 88:
-            logger.info(f"🤖 AUTO SKIP: Extreme Greed (F&G={fg_value}) — market overextended")
-            return []
+
+        # In extreme conditions, restrict direction rather than skip entirely:
+        # Extreme Fear (<= 15): Market is oversold → ONLY allow SHORT (ride the downtrend)
+        # Extreme Greed (>= 90): Market is overbought → ONLY allow LONG cautiously
+        # Normal (15-90): Allow both directions
+        forced_direction = None
+        if fg_value <= 15:
+            forced_direction = "SHORT"  # Extreme fear = downtrend in progress, only short
+            logger.info(f"🤖 EXTREME FEAR (F&G={fg_value}) — only scanning SHORT setups")
+        elif fg_value >= 90:
+            forced_direction = "LONG"   # Extreme greed = momentum up, only long
+            logger.info(f"🤖 EXTREME GREED (F&G={fg_value}) — only scanning LONG setups")
+        else:
+            logger.info(f"🤖 F&G={fg_value} — scanning both directions")
 
         for pair in AUTONOMOUS_PAIRS:
-            # Check cooldown per pair
+            # Check cooldown per pair — use total_seconds() to handle >1h durations
             last_scan = self.last_scan.get(pair)
-            if last_scan and (datetime.now() - last_scan).seconds < self.scan_cooldown * 60:
+            if last_scan and (datetime.now() - last_scan).total_seconds() < self.scan_cooldown * 60:
                 continue
 
             # Check if we already have this pair open
@@ -452,6 +473,11 @@ class AutonomousEngine:
             try:
                 setup = await self._analyze_pair(pair, fg_value)
                 self.last_scan[pair] = datetime.now()
+
+                # Apply forced_direction filter (extreme market condition)
+                if setup and forced_direction and setup.get("side") != forced_direction:
+                    logger.debug(f"  {pair}: SKIP (forced {forced_direction}, setup is {setup['side']})")
+                    setup = None
 
                 if setup and setup.get("confluence_score", 0) >= self.min_confluence:
                     self.setups_found += 1
@@ -466,8 +492,8 @@ class AutonomousEngine:
                         executed.append(setup)
                         self.auto_trades += 1
 
-                        # Only 1 new auto trade per scan cycle
-                        if len(executed) >= 1:
+                        # Max 2 auto trades per scan cycle
+                        if len(executed) >= 2:
                             break
 
             except Exception as e:
@@ -684,28 +710,34 @@ class AutonomousEngine:
         elif regime == "RANGING":
             score -= 10  # Penalize heavily — ranging = high SL rate
 
-        # 6. Fear & Greed alignment (7 pts)
-        if direction == "LONG" and fg_value > 55:
-            score += 7
-        elif direction == "SHORT" and fg_value < 45:
-            score += 7
-        elif direction == "LONG" and fg_value < 35:
-            score -= 5  # Buying into fear — risky
-        elif direction == "SHORT" and fg_value > 65:
-            score -= 5
+        # 6. Fear & Greed alignment (10 pts max)
+        # Extreme fear = strong SHORT signal (panic selling → downtrend)
+        # Extreme greed = strong LONG signal (FOMO rally → uptrend)
+        if direction == "SHORT" and fg_value <= 15:
+            score += 10  # Extreme fear → SHORT is contrarian best play
+        elif direction == "LONG" and fg_value >= 88:
+            score += 10  # Extreme greed → LONG momentum confirmed
+        elif direction == "SHORT" and fg_value < 40:
+            score += 7   # Bearish market → SHORT has tailwind
+        elif direction == "LONG" and fg_value > 60:
+            score += 7   # Bullish market → LONG has tailwind
+        elif direction == "LONG" and fg_value <= 25:
+            score -= 3   # Mildly risky LONG in fear zone
+        elif direction == "SHORT" and fg_value >= 75:
+            score -= 3   # Mildly risky SHORT in greed zone
 
         # 7. RSI sweet spot (10 pts)
-        #    LONG: RSI 40-55 = best zone (not overbought, has momentum)
-        #    SHORT: RSI 45-60 = best zone (not oversold, has momentum)
+        #    LONG: RSI 35-60 = acceptable range (not overbought, has momentum)
+        #    SHORT: RSI 40-70 = acceptable range (not oversold, has distribution)
         if direction == "LONG":
-            if 40 <= rsi_val <= 55:
+            if 38 <= rsi_val <= 58:
                 score += 10
-            elif 35 <= rsi_val <= 65:
+            elif 30 <= rsi_val <= 68:
                 score += 5
         else:
-            if 45 <= rsi_val <= 60:
+            if 42 <= rsi_val <= 68:
                 score += 10
-            elif 35 <= rsi_val <= 65:
+            elif 30 <= rsi_val <= 75:
                 score += 5
 
         # 8. Smart SL method bonus (5 pts)
@@ -766,19 +798,14 @@ Reject if indicators conflict or setup is weak."""
 
     async def _execute_autonomous_trade(self, setup: Dict) -> bool:
         """Execute an autonomous trade via the shared DB."""
-        from realtime_monitor import SUPPORTED_PAIRS
-
         pair = setup["pair"]
         side = setup["side"]
         price = setup["entry"]
         sl = setup["stop_loss"]
         sl_dist_pct = setup["sl_dist_pct"]
 
-        # Verify pair is in supported list
-        pair_base = pair.replace("/USDT", "")
-        if pair_base not in SUPPORTED_PAIRS:
-            logger.info(f"  AUTO SKIP: {pair} not in SUPPORTED_PAIRS")
-            return False
+        # Pairs in AUTONOMOUS_PAIRS already have verified candle data from _analyze_pair.
+        # No need for a static whitelist check here.
 
         # Final position size (conservative for autonomous: 1% risk per trade)
         balance = self.db.balance

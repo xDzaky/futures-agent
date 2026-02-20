@@ -152,28 +152,34 @@ SIGNAL_CHANNELS = {
     2201476957: {"tier": 3, "type": "news", "name": "Mikro Makro Ekonomi"},
 }
 
-# Pairs we can trade (expandable based on signals)
+# SUPPORTED_PAIRS → kept as a seed cache only.
+# The bot now accepts ANY /USDT pair that has real OHLCV data on the exchange.
+# New pairs from signals are automatically validated via _is_pair_tradeable().
 SUPPORTED_PAIRS = {
     "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "DOT", "MATIC",
     "LINK", "LTC", "SUI", "ARB", "OP", "APT", "SEI", "TIA", "INJ", "FET",
     "RENDER", "WIF", "PEPE", "BONK", "FLOKI", "SHIB", "NEAR", "ATOM", "FTM",
     "ALGO", "HBAR", "XLM", "UNI", "AAVE", "MKR", "CRV", "LDO", "ONDO",
     "ENA", "JUP", "W", "STRK", "ZRO", "EIGEN", "MOODENG", "1000LUNC",
-    "MTL", "SPX", "BAT", "STORJ", "CLO", "SIREN", "BEAT", "ZAMA",
-    "MORPHO", "PIPPIN", "ASTER",
-    # Additional pairs from signal channels
-    "BCH", "INIT", "ETC", "FIL", "RUNE", "SAND", "MANA", "GALA", "AXS",
-    "IMX", "GMT", "APE", "BLUR", "ORDI", "SATS", "1000PEPE", "1000BONK",
+    "MTL", "SPX", "BAT", "STORJ", "MORPHO", "PIPPIN",
+    "BCH", "ETC", "FIL", "RUNE", "SAND", "MANA", "GALA", "AXS",
+    "IMX", "GMT", "APE", "BLUR", "ORDI", "1000PEPE", "1000BONK",
     "1000FLOKI", "1000SHIB", "DYDX", "SNX", "COMP", "GRT", "THETA",
     "VET", "ICP", "ROSE", "CELO", "KAVA", "ZEC", "NEO", "XTZ",
     "IOTA", "ONE", "ENS", "CHZ", "MASK", "YFI", "BAL", "SUSHI",
-    "1INCH", "ANKR", "SKL", "CELR", "AUDIO", "RLC", "CTSI", "BAND",
-    "LINA", "SPELL", "JOE", "HOOK", "SSV", "ID", "RDNT", "PENDLE",
+    "1INCH", "ANKR", "SSV", "ID", "RDNT", "PENDLE",
     "WLD", "CYBER", "ARKM", "NTRN", "PYTH", "JTO", "DYM", "PIXEL",
-    "PORTAL", "AEVO", "ETHFI", "BOME", "MEW", "BB", "IO", "ZK",
-    "LISTA", "ZRO", "BLAST", "NOT", "DOGS", "HMSTR", "CATI", "SCR",
-    "MOVE", "KOMA", "USUAL", "PENGU", "VANA", "ME",
+    "PORTAL", "ETHFI", "BOME", "MEW", "BB", "IO", "ZK",
+    "LISTA", "BLAST", "NOT", "DOGS", "HMSTR", "CATI", "SCR",
+    "MOVE", "USUAL", "PENGU", "VANA", "ME",
+    # Extra pairs seen in signal channels
+    "ENSO", "BIO", "KERNEL", "KITE", "NIGHT", "INIT", "HOOK",
+    "LQTY", "API3", "LEVER", "BIGTIME", "HOOK", "TRB", "MAGIC",
+    "PERP", "FLOW", "CFX", "STMX", "HIGH", "SXP", "LAZIO",
 }
+
+# Dynamic pair tradability cache: {pair_symbol: (is_tradeable: bool, timestamp)}
+_pair_tradeable_cache: dict = {}
 
 # Filter words — skip these messages (results, promotions, etc.)
 SKIP_PATTERNS = [
@@ -939,6 +945,64 @@ class RealtimeSignalMonitor:
             logger.error(f"Bot command handler error: {e}")
             tg_send(f"Error: {e}")
 
+    # ─── Dynamic Pair Validation ────────────────────────────
+    async def _is_pair_tradeable(self, pair: str) -> bool:
+        """
+        Dynamically check if a pair is tradeable by verifying live candle data exists.
+        Replaces the static SUPPORTED_PAIRS whitelist.
+        Results cached for 1 hour to avoid repeated API calls.
+
+        Accepts: 'ENSO/USDT', 'ENSO', '#ENSO', 'enso', 'ENSO/USDT:USDT'
+        Rejects: Forex (XAUUSD), pairs with no data, malformed symbols
+        """
+        import time as _time
+
+        # Normalise pair to BASE/USDT format
+        raw = pair.strip().lstrip("#").upper()
+        raw = raw.split(":")[0]  # strip ":USDT" perpetual suffix
+        raw = raw.replace(" ", "").replace("-", "")
+
+        # Skip obvious non-crypto: XAUUSD, EURUSD, etc.
+        FIAT_KEYWORDS = {"XAU", "EUR", "GBP", "JPY", "USD/", "FOREX", "GOLD", "OIL", "SPX500"}
+        for fk in FIAT_KEYWORDS:
+            if fk in raw:
+                return False
+
+        # Normalise to BASE/USDT
+        if "/" not in raw:
+            raw = raw.replace("USDT", "")
+            symbol = f"{raw}/USDT"
+        else:
+            symbol = raw if raw.endswith("/USDT") else raw.split("/")[0] + "/USDT"
+
+        # Check cache (TTL 1 hour)
+        cached = _pair_tradeable_cache.get(symbol)
+        if cached is not None:
+            result, ts = cached
+            if _time.time() - ts < 3600:
+                return result
+
+        # Fast-path: already in known seed set
+        base = symbol.replace("/USDT", "")
+        if base in SUPPORTED_PAIRS:
+            _pair_tradeable_cache[symbol] = (True, _time.time())
+            return True
+
+        # Live check: try fetching 5m candles (just 5 bars)
+        try:
+            df = await asyncio.to_thread(self.market.get_candles, symbol, "5m", 5)
+            is_ok = df is not None and not df.empty and len(df) >= 3
+        except Exception:
+            is_ok = False
+
+        _pair_tradeable_cache[symbol] = (is_ok, _time.time())
+        if is_ok:
+            logger.info(f"  ✓ Pair {symbol} validated dynamically — added to tradeable set")
+            SUPPORTED_PAIRS.add(base)  # Cache for future lookups
+        else:
+            logger.debug(f"  ✗ Pair {symbol} not tradeable (no exchange data)")
+        return is_ok
+
     # ─── Signal Processing ─────────────────────────────────
     async def _process_structured_signal(self, text: str, images: List[str],
                                           channel_name: str, config: Dict):
@@ -947,9 +1011,10 @@ class RealtimeSignalMonitor:
         parsed = self.parser.parse(text)
 
         if parsed:
-            pair_base = parsed["pair"].replace("/USDT", "")
-            if pair_base not in SUPPORTED_PAIRS:
-                logger.info(f"  SKIP: {parsed['pair']} not in supported pairs")
+            # Dynamic validation: verify the pair has live data (not static whitelist)
+            tradeable = await self._is_pair_tradeable(parsed["pair"])
+            if not tradeable:
+                logger.info(f"  SKIP: {parsed['pair']} has no exchange data")
                 self.signals_skipped += 1
                 return
 
@@ -1000,16 +1065,17 @@ class RealtimeSignalMonitor:
         # If it's a signal
         if result.get("side") and result.get("pair"):
             confidence = result.get("confidence", 0)
-            # Tier 2 needs higher confidence since it's AI-interpreted
-            min_conf = 0.60 if config.get("tier") == 2 else 0.55
+            # Tier 1 (structured): accept at 0.45+. Tier 2 (AI analysis): 0.50+
+            min_conf = 0.50 if config.get("tier") == 2 else 0.45
             if confidence < min_conf:
-                logger.info(f"  LOW CONF: {result['side']} {result['pair']} conf={confidence:.0%}")
+                logger.info(f"  LOW CONF: {result['side']} {result['pair']} conf={confidence:.0%} < {min_conf:.0%}")
                 self.signals_skipped += 1
                 return
 
-            pair_base = result["pair"].replace("/USDT", "").replace("/", "")
-            if pair_base not in SUPPORTED_PAIRS:
-                logger.info(f"  SKIP: {result['pair']} not supported")
+            # Dynamic validation: check if exchange has data for this pair
+            tradeable = await self._is_pair_tradeable(result["pair"])
+            if not tradeable:
+                logger.info(f"  SKIP: {result['pair']} has no exchange data (unlisted pair)")
                 self.signals_skipped += 1
                 return
 

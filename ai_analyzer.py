@@ -19,6 +19,12 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger("ai_analyzer")
 
+try:
+    from enhanced_indicators import EnhancedIndicators
+except ImportError:
+    EnhancedIndicators = None
+    logger.warning("EnhancedIndicators module not found - running in basic mode")
+
 
 class AIAnalyzer:
     """AI-powered trading analysis using Groq (free Llama 3.3 70B)."""
@@ -29,6 +35,13 @@ class AIAnalyzer:
         self.model = "llama-3.3-70b-versatile"
         self._rate_limit_wait = 0
         self.total_calls = 0
+        
+        # Initialize Enhanced Indicators
+        if EnhancedIndicators:
+            self.indicators = EnhancedIndicators()
+            logger.info("Enhanced Indicators (LunarCrush, Santiment, FRED) initialized")
+        else:
+            self.indicators = None
 
     def analyze_trade(self, symbol: str, technical: Dict,
                       market_ctx: Dict, news: str = "") -> Optional[Dict]:
@@ -159,6 +172,41 @@ JSON FORMAT:
     Market Cap Dominance: {cmc.get('market_cap_dominance', 0):.2f}%
     CMC Signal: {cmc.get('signal', 'N/A')}"""
 
+        # Enhanced Indicators Context
+        enhanced_str = ""
+        if self.indicators:
+            try:
+                # remove USDT for symbol lookup
+                coin_symbol = symbol.replace("USDT", "").replace("USD", "")
+                enhanced_data = self.indicators.get_combined_signal(coin_symbol)
+                
+                details = enhanced_data.get("details", {})
+                social = details.get("social", {})
+                onchain = details.get("onchain", {})
+                macro = details.get("macro", {})
+                
+                enhanced_str = f"""
+ENHANCED INTELLIGENCE (LEADING INDICATORS):
+  Overall Bias: {enhanced_data.get('bias', 'NEUTRAL')} (Score: {enhanced_data.get('net_score', 0)})
+  Key Factors: {', '.join(enhanced_data.get('factors', []))}
+  
+  Social (LunarCrush): 
+    Outlook: {social.get('outlook', 'N/A')}
+    Galaxy Score: {social.get('galaxy_score', 'N/A')}
+    Alt Rank: {social.get('alt_rank', 'N/A')}
+    
+  On-Chain (Santiment):
+    Trend: {onchain.get('trend', 'N/A')}
+    Active Addresses: {onchain.get('value', 'N/A')}
+    
+  Macro Risk (FRED):
+    Level: {macro.get('risk_level', 'N/A')}
+    VIX: {macro.get('value', 'N/A')}
+"""
+            except Exception as e:
+                logger.debug(f"Enhanced data fetch error: {e}")
+                enhanced_str = "\nENHANCED INTELLIGENCE: Data unavailable"
+
         prompt = f"""Analyze {symbol} for a potential futures trade:
 
 CURRENT PRICE: ${price:,.2f}
@@ -171,7 +219,7 @@ MARKET CONTEXT:
   Orderbook: imbalance={ob.get('imbalance', 0):.4f} ({ob.get('signal', 'N/A')})
   Funding Rate: {funding.get('rate', 0):.6f} ({funding.get('signal', 'N/A')})
   Fear & Greed: {fg.get('value', 50)} ({fg.get('classification', 'N/A')})
-  ATR%: {atr_pct:.2f}%{cmc_str}
+  ATR%: {atr_pct:.2f}%{cmc_str}{enhanced_str}
 
 NEWS & SENTIMENT:
 {news if news else '  No significant news detected.'}

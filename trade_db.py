@@ -189,13 +189,17 @@ class TradeDB:
     # ─── Trade Operations ─────────────────────────
 
     def open_trade(self, signal: Dict, cycle: int = 0) -> Dict:
-        """Record a new trade opening."""
+        """Record a new trade opening.
+        
+        NOTE: In paper trading, opening a trade does NOT deduct balance.
+        Margin is 'locked' but balance stays intact until the trade closes
+        with real P&L. This prevents the phantom balance drop bug.
+        """
         now = datetime.now().isoformat()
 
-        # Deduct margin from balance
         margin = signal.get("margin", 0)
         fee = signal.get("position_value", 0) * 0.0004  # 0.04% taker fee
-        self.balance -= (margin + fee)
+        # NOTE: Do NOT deduct balance here — balance only changes on trade close
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
@@ -233,7 +237,7 @@ class TradeDB:
             conn.execute(
                 "INSERT INTO balance_history (timestamp, balance, pnl, event, cycle) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (now, self.balance, -(margin + fee), f"OPEN #{trade_id}", cycle)
+                (now, self.balance, 0, f"OPEN #{trade_id} (margin_locked=${margin:.2f})", cycle)
             )
             conn.commit()
 
@@ -241,18 +245,22 @@ class TradeDB:
 
     def close_trade(self, trade_id: int, exit_price: float,
                     reason: str = "MANUAL", cycle: int = 0) -> Dict:
-        """Close a trade and calculate P&L."""
+        """Close a trade and calculate P&L.
+        
+        On close: apply net P&L (profit or loss) to balance.
+        Since we didn't deduct margin on open, we only add/subtract the
+        net gain or loss relative to entry.
+        """
         trade = self.get_trade(trade_id)
         if not trade:
             return {"error": "Trade not found"}
 
         entry = trade["entry_price"]
         side = trade["side"]
-        qty = trade["quantity"]
         leverage = trade["leverage"]
         margin = trade["margin"]
 
-        # Calculate P&L
+        # Calculate P&L (leveraged)
         if side == "LONG":
             pnl_pct = (exit_price - entry) / entry * 100
         else:
@@ -263,8 +271,9 @@ class TradeDB:
 
         net_profit = profit - exit_fee
 
-        # Update balance
-        self.balance += (margin + net_profit)
+        # Update balance: only change by the NET P&L (not returning margin since
+        # margin was never deducted on open in paper trading)
+        self.balance += net_profit
         self.total_pnl += net_profit
         self.daily_pnl = self.daily_pnl + net_profit
 
@@ -370,6 +379,21 @@ class TradeDB:
             "roi": round(roi, 2),
             "starting_balance": self.starting_balance,
         }
+
+    def get_locked_margin(self) -> float:
+        """Return total margin locked in open positions."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(margin), 0) FROM trades WHERE status = 'OPEN'"
+            ).fetchone()
+            return float(row[0]) if row else 0.0
+
+    def get_equity(self) -> float:
+        """Return total equity = balance (realized) + locked margin from open positions.
+        This is the 'real' account value visible to the user.
+        """
+        locked = self.get_locked_margin()
+        return round(self.balance + locked, 2)
 
     def is_symbol_open(self, symbol: str) -> bool:
         with sqlite3.connect(self.db_path) as conn:

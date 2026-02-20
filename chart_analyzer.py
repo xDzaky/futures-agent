@@ -354,15 +354,50 @@ Rules:
             "sentiment": "BULLISH" if action == "LONG" else "BEARISH" if action == "SHORT" else "NEUTRAL",
         }
 
+    def _to_float(self, value) -> Optional[float]:
+        """Safely convert AI-returned value to float.
+        Handles: None, str (with $, commas), int, float, list (takes first element).
+        Returns None if conversion fails.
+        """
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, list):
+            if value:
+                return self._to_float(value[0])
+            return None
+        if isinstance(value, str):
+            cleaned = re.sub(r'[^\d.]', '', value.replace(',', ''))
+            try:
+                return float(cleaned) if cleaned else None
+            except ValueError:
+                return None
+        return None
+
+    def _sanitize_targets(self, targets) -> list:
+        """Convert a list of target prices to list of floats, filtering out bad values."""
+        if not targets:
+            return []
+        if not isinstance(targets, list):
+            v = self._to_float(targets)
+            return [v] if v is not None else []
+        result = []
+        for t in targets:
+            v = self._to_float(t)
+            if v is not None and v > 0:
+                result.append(v)
+        return result
+
     def _combine_analyses(self, raw_text: str, text_analysis: Optional[Dict],
                           image_analysis: Optional[Dict], channel: str) -> Optional[Dict]:
         """Combine text and image analysis into a final signal."""
 
-        # If neither analysis worked, try basic parsing
         if not text_analysis and not image_analysis:
             return self._basic_parse(raw_text, channel)
 
-        # Start with text analysis as base
         signal = {
             "pair": None,
             "side": None,
@@ -376,90 +411,69 @@ Rules:
             "source_type": "channel_ai",
         }
 
-        # Extract from text analysis
         if text_analysis:
             action = text_analysis.get("action", "SKIP")
             if action in ("LONG", "SHORT"):
                 signal["side"] = action
             elif action == "NEWS":
-                # News = context only, not a signal
                 signal["is_news"] = True
                 signal["news_sentiment"] = text_analysis.get("sentiment", "NEUTRAL")
                 signal["news_info"] = text_analysis.get("key_info", "")
 
             signal["pair"] = text_analysis.get("pair")
-            signal["entry"] = text_analysis.get("entry")
-            signal["targets"] = text_analysis.get("targets", [])
-            signal["stop_loss"] = text_analysis.get("stop_loss")
-            signal["leverage"] = text_analysis.get("leverage")
-            signal["confidence"] = text_analysis.get("confidence", 0.5)
+            # Sanitize all numeric fields to prevent type errors
+            signal["entry"] = self._to_float(text_analysis.get("entry"))
+            signal["targets"] = self._sanitize_targets(text_analysis.get("targets", []))
+            signal["stop_loss"] = self._to_float(text_analysis.get("stop_loss"))
+            signal["leverage"] = self._to_float(text_analysis.get("leverage"))
+            signal["confidence"] = self._to_float(text_analysis.get("confidence")) or 0.5
             signal["reasoning"] = text_analysis.get("reasoning", "")
 
-        # Enhance with image analysis
         if image_analysis:
             img_signal = image_analysis.get("signal", "NEUTRAL")
-            img_confidence = image_analysis.get("confidence", 0.5)
+            img_confidence = self._to_float(image_analysis.get("confidence")) or 0.5
 
-            # If image has a pair and text doesn't
             if not signal["pair"] and image_analysis.get("pair"):
                 signal["pair"] = image_analysis["pair"]
 
-            # If image agrees with text, boost confidence
             if signal["side"] and img_signal:
                 text_dir = signal["side"]
                 img_dir = img_signal
                 if text_dir == img_dir:
-                    # Agreement → boost confidence
-                    signal["confidence"] = min(0.95, signal["confidence"] * 1.2)
+                    signal["confidence"] = min(0.95, float(signal["confidence"]) * 1.2)
                     signal["reasoning"] += " | Chart confirms direction"
                 elif img_dir == "NEUTRAL":
-                    pass  # No conflict
+                    pass
                 else:
-                    # Disagreement → reduce confidence
-                    signal["confidence"] *= 0.6
+                    signal["confidence"] = float(signal["confidence"]) * 0.6
                     signal["reasoning"] += f" | Chart shows {img_dir} (conflicts)"
 
-            # If text has no direction but image does
             if not signal["side"] and img_signal in ("LONG", "SHORT"):
                 signal["side"] = img_signal
                 signal["confidence"] = img_confidence * 0.8
 
-            # Use image targets/SL if text doesn't have them
             if not signal["targets"] and image_analysis.get("targets"):
-                signal["targets"] = image_analysis["targets"]
+                signal["targets"] = self._sanitize_targets(image_analysis["targets"])
             if not signal["stop_loss"] and image_analysis.get("stop_loss"):
-                signal["stop_loss"] = image_analysis["stop_loss"]
+                signal["stop_loss"] = self._to_float(image_analysis["stop_loss"])
             if not signal["entry"] and image_analysis.get("entry_zone"):
-                try:
-                    ez = image_analysis["entry_zone"]
-                    if isinstance(ez, (int, float)):
-                        signal["entry"] = float(ez)
-                    elif isinstance(ez, str):
-                        nums = re.findall(r'[\d.]+', ez)
-                        if nums:
-                            signal["entry"] = sum(float(n) for n in nums) / len(nums)
-                except (ValueError, TypeError):
-                    pass
+                signal["entry"] = self._to_float(image_analysis["entry_zone"])
 
             signal["chart_pattern"] = image_analysis.get("pattern")
             signal["chart_summary"] = image_analysis.get("summary")
 
-        # Validate
         if not signal.get("side") or not signal.get("pair"):
-            # Return as news context if we have useful info
             if signal.get("is_news"):
                 return signal
             return None
 
-        # Clean up pair format
         pair = signal["pair"]
         if pair:
-            pair = pair.upper().replace(" ", "")
+            pair = str(pair).upper().replace(" ", "")
             if "/" not in pair:
                 pair = pair.replace("USDT", "/USDT")
             if not pair.endswith("/USDT"):
                 pair = pair + "/USDT"
-            # Remove double USDT
             pair = pair.replace("/USDT/USDT", "/USDT")
             signal["pair"] = pair
 

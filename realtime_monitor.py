@@ -643,31 +643,36 @@ class RealtimeSignalMonitor:
 
             elif command == "/balance":
                 stats = self.db.get_stats()
+                equity = self.db.get_equity()
                 balance = stats["balance"]
                 start_bal = stats["starting_balance"]
-                roi = (balance - start_bal) / start_bal * 100 if start_bal > 0 else 0
+                locked = self.db.get_locked_margin()
+                open_pnl_approx = equity - balance - locked
+                roi = (equity - start_bal) / start_bal * 100 if start_bal > 0 else 0
                 pnl = stats["total_pnl"]
 
                 msg = (
                     f"<b>Balance</b>\n"
-                    f"Current: ${balance:.2f}\n"
+                    f"Current: ${equity:.2f}\n"
+                    f"  └ Realized: ${balance:.2f}\n"
+                    f"  └ Locked margin: ${locked:.2f}\n"
                     f"Start: ${start_bal:.2f}\n"
-                    f"P&L: ${pnl:+.2f}\n"
+                    f"P&L (realized): ${pnl:+.2f}\n"
                     f"ROI: {roi:+.1f}%"
                 )
                 tg_send(msg)
 
             elif command == "/status":
                 stats = self.db.get_stats()
-                balance = stats["balance"]
+                equity = self.db.get_equity()
                 start_bal = stats["starting_balance"]
-                roi = (balance - start_bal) / start_bal * 100 if start_bal > 0 else 0
+                roi = (equity - start_bal) / start_bal * 100 if start_bal > 0 else 0
                 elapsed = datetime.now() - self.start_time
                 hours = elapsed.total_seconds() / 3600
 
                 msg = (
                     f"<b>Trading Status</b>\n"
-                    f"Balance: ${balance:.2f} (ROI: {roi:+.1f}%)\n"
+                    f"Balance: ${equity:.2f} (ROI: {roi:+.1f}%)\n"
                     f"Runtime: {hours:.1f}h\n"
                     f"Trades: {stats['total_trades']} (W:{stats['wins']} L:{stats['losses']})\n"
                     f"Win Rate: {stats['win_rate']:.1f}%\n"
@@ -705,13 +710,18 @@ class RealtimeSignalMonitor:
 
             elif command == "/stats":
                 stats = self.db.get_stats()
+                equity = self.db.get_equity()
+                locked = self.db.get_locked_margin()
+                start_bal = stats["starting_balance"]
+                roi = (equity - start_bal) / start_bal * 100 if start_bal > 0 else 0
                 elapsed = datetime.now() - self.start_time
 
                 msg = (
                     f"<b>Statistics</b>\n"
-                    f"Balance: ${stats['starting_balance']:.2f} → ${stats['balance']:.2f}\n"
-                    f"Total P&L: ${stats['total_pnl']:+.2f}\n"
-                    f"ROI: {(stats['balance']-stats['starting_balance'])/stats['starting_balance']*100:+.1f}%\n"
+                    f"Balance: ${start_bal:.2f} → ${equity:.2f}\n"
+                    f"  Realized: ${stats['balance']:.2f} | Locked: ${locked:.2f}\n"
+                    f"Total P&L (realized): ${stats['total_pnl']:+.2f}\n"
+                    f"ROI: {roi:+.1f}%\n"
                     f"Peak: ${self.peak_balance:.2f}\n\n"
                     f"Trades: {stats['total_trades']}\n"
                     f"Wins: {stats['wins']}\n"
@@ -900,9 +910,14 @@ class RealtimeSignalMonitor:
         }
 
         # Run AI analysis (Groq for text, Gemini for images)
-        result = self.analyzer.analyze_message(message)
+        try:
+            result = self.analyzer.analyze_message(message)
+        except Exception as e:
+            logger.error(f"Analyzer error in {channel_name}: {e}")
+            self.signals_skipped += 1
+            return
 
-        if not result:
+        if not result or not isinstance(result, dict):
             self.signals_skipped += 1
             return
 
@@ -978,9 +993,10 @@ class RealtimeSignalMonitor:
             logger.info(f"  REJECT: Already have position in {pair}")
             return False
 
-        # 3. Drawdown check
+        # 3. Drawdown check — use equity (realized balance + open margin)
         balance = self.db.balance
-        drawdown = (self.peak_balance - balance) / self.peak_balance if self.peak_balance > 0 else 0
+        equity = self.db.get_equity()  # balance + locked margin in open positions
+        drawdown = (self.peak_balance - equity) / self.peak_balance if self.peak_balance > 0 else 0
         if drawdown > self.max_drawdown:
             logger.info(f"  REJECT: Drawdown {drawdown:.0%} exceeds {self.max_drawdown:.0%} limit")
             return False
@@ -990,7 +1006,7 @@ class RealtimeSignalMonitor:
             logger.info(f"  REJECT: {self.consecutive_losses} consecutive losses, cooling down")
             return False
 
-        # 5. Minimum balance
+        # 5. Minimum balance check
         if balance < 5:
             logger.info(f"  REJECT: Balance ${balance:.2f} too low")
             return False
@@ -1326,7 +1342,7 @@ class RealtimeSignalMonitor:
 
         if profit >= 0:
             self.consecutive_losses = 0
-            self.peak_balance = max(self.peak_balance, self.db.balance)
+            self.peak_balance = max(self.peak_balance, self.db.get_equity())
         else:
             self.consecutive_losses += 1
 
@@ -1379,12 +1395,12 @@ class RealtimeSignalMonitor:
         open_trades = self.db.get_open_trades()
         elapsed = datetime.now() - self.start_time
         hours = elapsed.total_seconds() / 3600
-        balance = stats["balance"]
+        equity = self.db.get_equity()
         start_bal = stats["starting_balance"]
-        roi = (balance - start_bal) / start_bal * 100 if start_bal > 0 else 0
+        roi = (equity - start_bal) / start_bal * 100 if start_bal > 0 else 0
 
         logger.info("─" * 50)
-        logger.info(f"DASHBOARD | {hours:.1f}h | ${balance:.2f} (ROI: {roi:+.1f}%)")
+        logger.info(f"DASHBOARD | {hours:.1f}h | ${equity:.2f} (ROI: {roi:+.1f}%) | realized=${stats['balance']:.2f}")
         logger.info(f"  Trades: {stats['total_trades']} | W:{stats['wins']} L:{stats['losses']} | WR: {stats['win_rate']:.0f}%")
         logger.info(f"  Signals: {self.signals_processed} processed, {self.signals_executed} executed, {self.signals_skipped} skipped")
         logger.info(f"  News: {self.news_context.get('sentiment', '?')} | Losses streak: {self.consecutive_losses}")

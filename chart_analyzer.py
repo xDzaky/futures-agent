@@ -34,8 +34,17 @@ import json
 import base64
 import logging
 import time
+import asyncio
 from typing import Dict, List, Optional
+from sortedcontainers import SortedDict # If available, else just dict
 from dotenv import load_dotenv
+
+# New Google GenAI SDK
+try:
+    from google import genai
+    HAS_GEMINI = True
+except ImportError:
+    HAS_GEMINI = False
 
 load_dotenv()
 logger = logging.getLogger("chart_analyzer")
@@ -49,20 +58,22 @@ class ChartAnalyzer:
     """
 
     def __init__(self):
+        # Gemini API Key Rotation logic
+        self.gemini_keys = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
+        if not self.gemini_keys and os.getenv("GEMINI_API_KEY"):
+            self.gemini_keys = [os.getenv("GEMINI_API_KEY")]
+        
+        self.current_gemini_idx = 0
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        
         self.groq_key = os.getenv("GROQ_API_KEY", "")
         self.nvidia_key = os.getenv("NVIDIA_API_KEY", "")
         self.hf_key = os.getenv("HUGGINGFACE_API_KEY", "")
         
-        # NVIDIA models (tested & working)
-        self.nvidia_vision_model = os.getenv(
-            "NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct"
-        )
-        self.nvidia_analysis_model = os.getenv(
-            "NVIDIA_ANALYSIS_MODEL", "deepseek-ai/deepseek-v3.1"
-        )
-        self.nvidia_validator_model = os.getenv(
-            "NVIDIA_VALIDATOR_MODEL", "meta/llama-3.3-70b-instruct"
-        )
+        # ... fallback models
+        self.nvidia_vision_model = os.getenv("NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct")
+        self.nvidia_analysis_model = os.getenv("NVIDIA_ANALYSIS_MODEL", "deepseek-ai/deepseek-v3.1")
+        self.nvidia_validator_model = os.getenv("NVIDIA_VALIDATOR_MODEL", "meta/llama-3.3-70b-instruct")
         self.nvidia_base_url = "https://integrate.api.nvidia.com/v1"
         self.hf_base_url = "https://router.huggingface.co/v1"
         self.hf_model = "Qwen/Qwen2.5-72B-Instruct"
@@ -113,38 +124,116 @@ class ChartAnalyzer:
         self._last_nvidia_call = 0
         self._last_hf_call = 0
 
+    def _get_gemini_client(self):
+        """Get Gemini client with rotation."""
+        if not HAS_GEMINI or not self.gemini_keys:
+            return None
+        
+        key = self.gemini_keys[self.current_gemini_idx]
+        return genai.Client(api_key=key)
+
     def analyze_message(self, message: Dict) -> Optional[Dict]:
         """
-        Analyze a Telegram message (text + images) and extract trading signal.
-
-        Args:
-            message: {text, images: [bytes or path], channel, timestamp}
-
-        Returns:
-            {pair, side, entry, targets, stop_loss, leverage,
-             confidence, reasoning, source_type} or None
+        Analyze a Telegram message using Multi-modal Gemini with Fallback.
         """
         text = message.get("text", "")
         images = message.get("images", [])
         channel = message.get("channel", "?")
 
-        # Step 1: Analyze chart images with NVIDIA NIM vision
+        # STRATEGY 1: Attempt Multi-modal Analysis with Gemini (Tier 1)
+        if HAS_GEMINI and self.gemini_keys:
+            result = self._analyze_with_gemini_multimodal(text, images)
+            if result:
+                # Add source info
+                result["source"] = f"channel:{channel}"
+                result["source_type"] = "gemini_multimodal"
+                return result
+        
+        # STRATEGY 2: Fallback to NVIDIA NIM + Groq (Tier 2)
+        logger.info("Gemini failed/unavailable, falling back to NVIDIA + Groq")
+        
         image_analysis = None
         if images and self.nvidia_client:
             image_analysis = self._analyze_chart_image(images[0])
-            if image_analysis:
-                logger.info(f"Chart analysis: {image_analysis.get('summary', '')[:100]}")
 
-        # Step 2: Analyze text with Groq (supports Indonesian)
         text_analysis = None
         if text and self.groq_client:
             text_analysis = self._analyze_text_signal(text, image_analysis)
-            if text_analysis:
-                logger.info(f"Text analysis: {text_analysis.get('action', 'SKIP')}")
 
-        # Step 3: Combine results
-        signal = self._combine_analyses(text, text_analysis, image_analysis, channel)
-        return signal
+        return self._combine_analyses(text, text_analysis, image_analysis, channel)
+
+    def _analyze_with_gemini_multimodal(self, text: str, images: List) -> Optional[Dict]:
+        """Performs multi-modal analysis using Gemini 2.x with Key Rotation."""
+        max_retries = len(self.gemini_keys)
+        
+        for attempt in range(max_retries):
+            client = self._get_gemini_client()
+            if not client: return None
+            
+            try:
+                # ── Prepare contents ──────────────────────────────────────
+                contents = []
+                if text:
+                    contents.append(f"SIGNAL TEXT:\n{text}")
+                
+                # Load first image only for speed
+                if images:
+                    from google.genai import types
+                    img_data = images[0]
+                    if isinstance(img_data, str):
+                        with open(img_data, "rb") as f:
+                            img_bytes = f.read()
+                    else:
+                        img_bytes = img_data
+                    
+                    contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
+
+                prompt = (
+                    "Act as a Master Crypto Futures Trader. Analyze this data (text and/or chart image).\n"
+                    "Use Smart Money Concepts (SMC), Trend Analysis, and Volume. "
+                    "Determine if this is a high-probability trade setup.\n\n"
+                    "Respond ONLY with a JSON object:\n"
+                    "{\n"
+                    '    "action": "LONG/SHORT/NEWS/SKIP",\n'
+                    '    "pair": "BASE/USDT",\n'
+                    '    "entry": float,\n'
+                    '    "targets": [float, float, float],\n'
+                    '    "stop_loss": float,\n'
+                    '    "leverage": int,\n'
+                    '    "confidence": 0.0-1.0,\n'
+                    '    "reasoning": "Be precise, mention support/resistance, RSI, and chart pattern if visible"\n'
+                    "}"
+                )
+                
+                response = client.models.generate_content(
+                    model=self.gemini_model,
+                    contents=[prompt] + contents,
+                    config=types.GenerateContentConfig(
+                        # response_mime_type="application/json" # Optional
+                        temperature=0.2
+                    )
+                )
+                
+                result = self._extract_json(response.text)
+                if result and result.get("action") != "SKIP":
+                    logger.info(f"✓ Gemini Analysis Success (Key {self.current_gemini_idx})")
+                    return result
+                
+                # If it's a SKIP, we just return None to let fallback happen if needed, 
+                # or return the SKIP result if we trust Gemini enough.
+                return result
+
+            except Exception as e:
+                err = str(e)
+                if "429" in err or "quota" in err.lower():
+                    logger.warning(f"Gemini Key {self.current_gemini_idx} hit quota limit. Rotating...")
+                    self.current_gemini_idx = (self.current_gemini_idx + 1) % len(self.gemini_keys)
+                    continue
+                else:
+                    logger.error(f"Gemini error: {e}")
+                    return None
+        
+        return None
 
     def _analyze_chart_image(self, image_data, mime_type: str = "image/jpeg") -> Optional[Dict]:
         """

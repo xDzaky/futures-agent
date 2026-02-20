@@ -315,6 +315,19 @@ class RealtimeSignalMonitor:
             self._news_correlator = NewsCorrelator()
         return self._news_correlator
 
+    @property
+    def autonomous_engine(self):
+        """Lazy-initialized autonomous trading engine."""
+        if not hasattr(self, '_autonomous_engine') or self._autonomous_engine is None:
+            from autonomous_engine import AutonomousEngine
+            self._autonomous_engine = AutonomousEngine(
+                market=self.market,
+                db=self.db,
+                tg_send_fn=tg_send,
+                max_positions=self.max_positions,
+            )
+        return self._autonomous_engine
+
     # ─── PID Lock Management ───────────────────────────
     def _check_and_create_lock(self):
         """Check if another instance is running, create lock file."""
@@ -414,12 +427,15 @@ class RealtimeSignalMonitor:
         logger.info("Waiting for signals...")
         logger.info("=" * 60)
 
+        equity = self.db.get_equity()
         tg_send(
             f"<b>REAL-TIME MONITOR STARTED</b>\n"
             f"Channels: {len(chats)}\n"
-            f"Balance: ${self.db.balance:.2f}\n"
+            f"Balance: ${equity:.2f}\n"
             f"Max leverage: {self.max_leverage}x\n"
             f"TA: {'ON' if self.use_ta else 'OFF'}\n"
+            f"🤖 Autonomous: {'ON' if os.getenv('ENABLE_AUTONOMOUS','true').lower()=='true' else 'OFF'} "
+            f"(scan every {os.getenv('AUTONOMOUS_SCAN_INTERVAL_MIN','15')}min)\n"
             f"Waiting for signals..."
         )
 
@@ -428,6 +444,18 @@ class RealtimeSignalMonitor:
         dashboard_task = asyncio.create_task(self._dashboard_loop())
         news_task = asyncio.create_task(self._news_analysis_loop())
         bot_command_task = asyncio.create_task(self._bot_command_poller())
+
+        # Autonomous market scan loop (runs independently of Telegram signals)
+        enable_autonomous = os.getenv("ENABLE_AUTONOMOUS", "true").lower() == "true"
+        autonomous_interval = int(os.getenv("AUTONOMOUS_SCAN_INTERVAL_MIN", "15"))
+        if enable_autonomous:
+            auto_task = asyncio.create_task(
+                self.autonomous_engine.run_scan_loop(interval_minutes=autonomous_interval)
+            )
+            logger.info(f"🤖 Autonomous engine started (interval={autonomous_interval}min)")
+        else:
+            auto_task = None
+            logger.info("🤖 Autonomous engine DISABLED (set ENABLE_AUTONOMOUS=true to enable)")
 
         try:
             # Keep running until stopped
@@ -439,7 +467,10 @@ class RealtimeSignalMonitor:
             logger.error(f"Unexpected error in main loop: {e}")
         finally:
             self.running = False
-            for task in [monitor_task, dashboard_task, news_task, bot_command_task]:
+            tasks = [monitor_task, dashboard_task, news_task, bot_command_task]
+            if auto_task:
+                tasks.append(auto_task)
+            for task in tasks:
                 task.cancel()
                 try:
                     await task
@@ -636,10 +667,45 @@ class RealtimeSignalMonitor:
                     "/cancel_limit 123 - Cancel limit order\n"
                     "/trending - View trending coins\n"
                     "/research [COIN] - Trigger AI research\n"
+                    "/autoscan - Trigger immediate autonomous market scan\n"
+                    "/autostatus - Show autonomous engine statistics\n"
                     "/channels - List monitored channels\n"
                     "/help - Show this help"
                 )
                 tg_send(help_text)
+
+            elif command == "/autoscan":
+                tg_send("🤖 <b>Running autonomous market scan...</b>")
+                try:
+                    results = await self.autonomous_engine.scan_all_pairs()
+                    if results:
+                        msg = f"🤖 <b>Autonomous scan complete</b>\n{len(results)} trade(s) opened"
+                    else:
+                        status = self.autonomous_engine.get_status()
+                        msg = (
+                            f"🤖 <b>Autonomous scan complete</b>\n"
+                            f"No high-confluence setups found\n"
+                            f"Min confluence required: {status['min_confluence']}/100"
+                        )
+                    tg_send(msg)
+                except Exception as e:
+                    tg_send(f"❌ Autonomous scan error: {e}")
+
+            elif command == "/autostatus":
+                try:
+                    status = self.autonomous_engine.get_status()
+                    msg = (
+                        f"🤖 <b>Autonomous Engine Status</b>\n"
+                        f"Pairs monitored: {status['pairs_monitored']}\n"
+                        f"Total scans: {status['scans']}\n"
+                        f"Setups found: {status['setups_found']}\n"
+                        f"Auto trades: {status['auto_trades']}\n"
+                        f"Min confluence: {status['min_confluence']}/100\n"
+                        f"Scan interval: {os.getenv('AUTONOMOUS_SCAN_INTERVAL_MIN', '15')}min"
+                    )
+                    tg_send(msg)
+                except Exception as e:
+                    tg_send(f"❌ Auto status error: {e}")
 
             elif command == "/balance":
                 stats = self.db.get_stats()

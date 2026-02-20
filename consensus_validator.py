@@ -163,7 +163,7 @@ class ConsensusValidator:
             prompt = self._build_validation_prompt(signal, context)
 
             response = self.nvidia_client.chat.completions.create(
-                model="deepseek/deepseek-r1",
+                model="deepseek-ai/deepseek-v3.1",  # Verified working NVIDIA NIM model
                 messages=[
                     {"role": "system", "content": self._validator_system_prompt()},
                     {"role": "user", "content": prompt}
@@ -224,16 +224,27 @@ REJECT if:
         market = context.get("market", {})
         news = context.get("news", "")
 
+        # Safely format targets (may be None or string from AI output)
+        def safe_price(v):
+            try:
+                return f'${float(v):,.2f}'
+            except (TypeError, ValueError):
+                return str(v) if v else '?'
+
+        targets_str = ', '.join(safe_price(t) for t in (targets or [])[:3]) if targets else 'N/A'
+        entry_str = safe_price(entry)
+        sl_str = safe_price(sl)
+
         prompt = f"""Review this trading signal:
 
 SIGNAL:
   Pair: {pair}
   Direction: {side}
-  Entry: ${entry:,.2f}
-  Stop Loss: ${sl:,.2f}
-  Targets: {', '.join(f'${t:,.2f}' for t in targets[:3])}
+  Entry: {entry_str}
+  Stop Loss: {sl_str}
+  Targets: {targets_str}
   Leverage: {leverage}x
-  Original Confidence: {confidence:.2f}
+  Original Confidence: {float(confidence) if confidence else 0:.2f}
   Reasoning: {reasoning}
 
 TECHNICAL ANALYSIS:

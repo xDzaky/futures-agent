@@ -113,6 +113,10 @@ class ChartAnalyzer:
         self._last_groq_call = 0
         self._last_nvidia_call = 0
         self._last_hf_call = 0
+        
+        # ── Gemini Cooldown System ──
+        self._gemini_cooldown_until = 0
+        self._gemini_cooldown_duration = 120  # detik (2 menit)
 
     def _get_gemini_client(self):
         """Get Gemini client with rotation."""
@@ -154,6 +158,13 @@ class ChartAnalyzer:
 
     def _analyze_with_gemini_multimodal(self, text: str, images: List) -> Optional[Dict]:
         """Performs multi-modal analysis using Gemini 2.x with Key Rotation + Macro Intuition."""
+        
+        # ── Cek Cooldown Gemini ──
+        if time.time() < self._gemini_cooldown_until:
+            remaining = int(self._gemini_cooldown_until - time.time())
+            logger.debug(f"Gemini sedang dalam cooldown ({remaining}s tersisa). Langsung fallback.")
+            return None
+
         max_retries = len(self.gemini_keys)
 
         # ── Load Macro Context (Intuisi Makro) ────────────────────────────
@@ -260,6 +271,9 @@ class ChartAnalyzer:
                 if "429" in err or "quota" in err.lower() or "RESOURCE_EXHAUSTED" in err:
                     logger.warning(f"Gemini Key {self.current_gemini_idx} quota limit. Rotating...")
                     self.current_gemini_idx = (self.current_gemini_idx + 1) % len(self.gemini_keys)
+                    if attempt == max_retries - 1:
+                        logger.warning(f"⚠️ Semua key Gemini limit. Mengaktifkan cooldown {self._gemini_cooldown_duration}s")
+                        self._gemini_cooldown_until = time.time() + self._gemini_cooldown_duration
                     continue
                 elif "API_KEY_INVALID" in err or "INVALID_ARGUMENT" in err:
                     logger.warning(f"Gemini Key {self.current_gemini_idx} INVALID. Skipping to next...")

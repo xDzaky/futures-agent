@@ -542,11 +542,23 @@ class RealtimeSignalMonitor:
         for key, config in SIGNAL_CHANNELS.items():
             try:
                 if isinstance(key, int):
-                    # Use peer ID directly
-                    try:
-                        entity = await self.client.get_entity(key)
-                    except Exception:
-                        logger.warning(f"  Could not resolve channel ID {key} ({config['name']})")
+                    # Autocorrect positive integer channel IDs to Telegram's -100 format
+                    if key > 0:
+                        test_keys = [int(f"-100{key}"), key]
+                    else:
+                        test_keys = [key]
+                        
+                    entity = None
+                    last_err = None
+                    for t_key in test_keys:
+                        try:
+                            entity = await self.client.get_entity(t_key)
+                            break
+                        except Exception as e:
+                            last_err = e
+                            
+                    if not entity:
+                        logger.warning(f"  Could not resolve channel ID {key} ({config['name']}): {last_err}")
                         continue
                 else:
                     entity = await self.client.get_entity(key)
@@ -1481,10 +1493,16 @@ class RealtimeSignalMonitor:
 
     # ─── Background tasks ──────────────────────────────────
     async def _position_monitor_loop(self):
-        """Monitor open positions every 10 seconds for SL/TP."""
+        """Monitor open positions every 10 seconds for SL/TP and pending limit orders."""
         while self.running:
             try:
                 await asyncio.sleep(10)
+                
+                # Check pending limit orders first
+                pending_opts = self.db.get_pending_limit_orders()
+                for order in pending_opts:
+                    await self._check_limit_order(order)
+                    
                 open_trades = self.db.get_open_trades()
                 for trade in open_trades:
                     self._check_position(trade)
@@ -1493,6 +1511,53 @@ class RealtimeSignalMonitor:
             except Exception as e:
                 logger.error(f"Monitor loop error: {e}")
                 await asyncio.sleep(5)
+
+    async def _check_limit_order(self, order: Dict):
+        """Check if pending limit order price is reached to execute trade."""
+        try:
+            price = self.market.get_current_price(order["symbol"])
+            if not price:
+                return
+
+            side = order["side"]
+            entry_price = float(order["entry_price"])
+            
+            # For LONG: Execute if market price drops to or below limit entry
+            # For SHORT: Execute if market price rises to or above limit entry
+            execute = False
+            if side == "LONG" and price <= entry_price:
+                execute = True
+            elif side == "SHORT" and price >= entry_price:
+                execute = True
+                
+            if execute:
+                logger.info(f"  LIMIT HIT: {side} {order['symbol']} reached entry {entry_price:,.4f} at market {price:,.4f}")
+                
+                parsed = {
+                    "pair": order["symbol"],
+                    "side": side,
+                    "entry": entry_price, # Let it enter at limit price
+                    "targets": [order.get("tp1"), order.get("tp2"), order.get("tp3")],
+                    "stop_loss": order.get("stop_loss"),
+                    "leverage": order.get("leverage")
+                }
+                
+                self.db.cancel_limit_order(order["id"])
+                
+                # Increase tolerance specifically for limit orders since it executes exactly at the limit price
+                prev_tol = os.environ.get("MAX_ENTRY_DEVIATION_PCT", "5.0")
+                os.environ["MAX_ENTRY_DEVIATION_PCT"] = "100.0"
+                
+                success = await self._execute_trade(parsed, "LIMIT_TRIGGER")
+                
+                os.environ["MAX_ENTRY_DEVIATION_PCT"] = prev_tol
+                
+                if not success:
+                    logger.warning(f"Failed to execute limit order #{order['id']}")
+                    tg_send(f"❌ Limit order #{order['id']} for {order['symbol']} triggered but failed to execute.")
+                
+        except Exception as e:
+            logger.error(f"Limit order check error #{order.get('id', '?')}: {e}")
 
     def _check_position(self, trade: Dict):
         """Check a single position for SL/TP."""

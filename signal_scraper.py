@@ -105,7 +105,19 @@ class SignalParser:
     def _extract_pair(self, text: str) -> Optional[str]:
         text_upper = text.upper()
         # Try "BTC/USDT" or "BTCUSDT" format first
-        m = re.search(r'([A-Z]{2,10})\s*[/\-]?\s*USDT', text_upper)
+        m = re.search(r'([A-Z0-9]{2,10})\s*[/\-]?\s*USDT', text_upper)
+        if m:
+            return m.group(1)
+        # Try finding hashtag #COIN
+        m = re.search(r'#([A-Z0-9]{2,10})\b', text_upper)
+        if m:
+            return m.group(1)
+        # Try 'COIN LONG' or 'COIN SHORT'
+        m = re.search(r'\b([A-Z0-9]{2,10})\s+(?:LONG|SHORT|BUY|SELL)\b', text_upper)
+        if m:
+            return m.group(1)
+        # Try 'LONG COIN' or 'SHORT COIN'
+        m = re.search(r'\b(?:LONG|SHORT|BUY|SELL)\s+([A-Z0-9]{2,10})\b', text_upper)
         if m:
             return m.group(1)
         # Try standalone coin names
@@ -185,19 +197,24 @@ class SignalParser:
                 targets = [self._parse_number(n) for n in nums if self._parse_number(n)]
 
         if not targets:
-            # "Take profit: 70000"
-            m = re.search(r'take\s*profit\s*:?\s*' + NUM_PATTERN, text_lower)
+            # "Take profit: 70000" or list of TPs down to stop loss
+            m = re.search(r'take\s*profit[s]?\s*[:=\-]?\s*(.*?)(?:stop\s*loss|sl|invalidation|leverage|$)', text_lower, re.DOTALL)
             if m:
-                v = self._parse_number(m.group(1))
-                if v:
-                    targets.append(v)
+                block = m.group(1)
+                nums = re.findall(NUM_PATTERN, block)
+                for n in nums:
+                    val = self._parse_number(n)
+                    if val and val > 0 and val not in targets:
+                        # Skip typical bullet points like "1", "2" if entry is huge (e.g. BTC)
+                        # but be careful because ZAMA is 0.02.
+                        targets.append(val)
 
         return targets[:5]  # Max 5 targets
 
     def _extract_stoploss(self, text: str, text_lower: str) -> Optional[float]:
         patterns = [
             r'(?:stop\s*loss|sl|stoploss)\s*:?\s*' + NUM_PATTERN,
-            r'(?:stop|invalidation)\s*:?\s*' + NUM_PATTERN,
+            r'(?:stop|loss|invalidation)\s*:?\s*' + NUM_PATTERN,
         ]
         for p in patterns:
             m = re.search(p, text_lower)

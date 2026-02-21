@@ -235,8 +235,9 @@ class ChartAnalyzer:
                     if macro_prompt and result.get("leverage", 0) > 10:
                         original_lev = result["leverage"]
                         result["leverage"] = 10
+                        existing_reasoning = str(result.get("reasoning", ""))
                         result["reasoning"] = (
-                            result.get("reasoning", "") +
+                            existing_reasoning +
                             f" [MACRO CAP: leverage reduced from {original_lev}x to 10x — bear market active]"
                         )
                         logger.info(f"⚠️  Macro Safety Cap: leverage {original_lev}x → 10x")
@@ -501,8 +502,13 @@ class ChartAnalyzer:
             signal["targets"] = self._sanitize_targets(text_analysis.get("targets", []))
             signal["stop_loss"] = self._to_float(text_analysis.get("stop_loss"))
             signal["leverage"] = self._to_float(text_analysis.get("leverage"))
-            signal["confidence"] = self._to_float(text_analysis.get("confidence")) or 0.5
-            signal["reasoning"] = text_analysis.get("reasoning", "")
+            # BUG FIX #3: Confidence harus di-cap 0.0-1.0. AI terkadang return 700% dsb
+            raw_conf = self._to_float(text_analysis.get("confidence")) or 0.5
+            signal["confidence"] = max(0.0, min(1.0, raw_conf))
+            # BUG FIX #4: reasoning bisa berupa dict jika AI return nested JSON
+            # Ini menyebabkan 'dict += str' crash — selalu convert ke str
+            raw_reasoning = text_analysis.get("reasoning", "")
+            signal["reasoning"] = str(raw_reasoning) if raw_reasoning else ""
 
         if image_analysis:
             img_signal = image_analysis.get("signal", "NEUTRAL")
@@ -516,12 +522,12 @@ class ChartAnalyzer:
                 img_dir = img_signal
                 if text_dir == img_dir:
                     signal["confidence"] = min(0.95, float(signal["confidence"]) * 1.2)
-                    signal["reasoning"] += " | Chart confirms direction"
+                    signal["reasoning"] = str(signal.get("reasoning", "")) + " | Chart confirms direction"
                 elif img_dir == "NEUTRAL":
                     pass
                 else:
                     signal["confidence"] = float(signal["confidence"]) * 0.6
-                    signal["reasoning"] += f" | Chart shows {img_dir} (conflicts)"
+                    signal["reasoning"] = str(signal.get("reasoning", "")) + f" | Chart shows {img_dir} (conflicts)"
 
             if not signal["side"] and img_signal in ("LONG", "SHORT"):
                 signal["side"] = img_signal

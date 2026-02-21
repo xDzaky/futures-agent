@@ -1064,7 +1064,9 @@ class RealtimeSignalMonitor:
 
         # If it's a signal
         if result.get("side") and result.get("pair"):
-            confidence = result.get("confidence", 0)
+            raw_conf = result.get("confidence", 0)
+            # BUG FIX #3: Cap confidence ke 0-1 (AI bisa return 70.0 = 7000%)
+            confidence = max(0.0, min(1.0, float(raw_conf) if raw_conf else 0.0))
             # Tier 1 (structured): accept at 0.45+. Tier 2 (AI analysis): 0.50+
             min_conf = 0.50 if config.get("tier") == 2 else 0.45
             if confidence < min_conf:
@@ -1156,6 +1158,18 @@ class RealtimeSignalMonitor:
         entry = signal.get("entry")
         if entry and entry > 0:
             entry_diff = abs(price - entry) / entry * 100
+
+            # ── BUG FIX: BIO/USDT catastrophic loss ──
+            # Signal entry=$398 (parsed wrong from text), actual price=$0.0379
+            # entry_diff = 99.6% → bot buka, langsung SL kena, rugi -800%
+            # Fix: HARD REJECT jika entry vs market price > 50%
+            if entry_diff > 50.0:
+                logger.info(
+                    f"  REJECT: Signal entry ${entry:,.4f} vs market ${price:,.4f} "
+                    f"({entry_diff:.1f}% deviation — price mismatch, likely wrong parse)"
+                )
+                return False
+
             if entry_diff > max_entry_deviation:
                 logger.info(f"  REJECT: Price ${price:,.4f} too far from entry ${entry:,.4f} ({entry_diff:.1f}% > {max_entry_deviation}%)")
                 return False
@@ -1447,14 +1461,16 @@ class RealtimeSignalMonitor:
 
             leveraged_pnl = pnl_pct * trade["leverage"]
 
+            # ── BUG FIX: TP2/TP3 harus langsung CLOSE, bukan hanya geser SL ──
+            # Sebelumnya: TP2 hit -> hanya geser SL ke entry -> harga balik -> close kecil
+            # Contoh: ESP +38% leveraged, bisa dapat besar, malah close +1.8% karena SL
             if hit_tp3:
                 self._close_trade(trade, price, "TP3", leveraged_pnl)
             elif hit_tp2:
-                new_sl = entry * (1.002 if side == "LONG" else 0.998)
-                if (side == "LONG" and new_sl > sl) or (side == "SHORT" and new_sl < sl):
-                    self.db.update_stop_loss(trade["id"], new_sl)
-                    logger.info(f"  #{trade['id']} TP2 hit → SL moved to ${new_sl:,.4f}")
+                # TP2 hit → CLOSE TRADE langsung (profit terjamin)
+                self._close_trade(trade, price, "TP2", leveraged_pnl)
             elif hit_tp1:
+                # TP1 hit → hanya geser SL ke entry (trailing stop, break-even)
                 new_sl = entry
                 if (side == "LONG" and new_sl > sl) or (side == "SHORT" and new_sl < sl):
                     self.db.update_stop_loss(trade["id"], new_sl)
@@ -1463,6 +1479,10 @@ class RealtimeSignalMonitor:
                 self._close_trade(trade, price, "SL", leveraged_pnl)
             elif leveraged_pnl < -20:
                 self._close_trade(trade, price, "EMERGENCY_SL", leveraged_pnl)
+            elif leveraged_pnl >= 30:
+                # Auto-close jika profit >= 30% leveraged (take profit agresif)
+                # Mencegah profit besar balik menjadi loss seperti kasus ESP
+                self._close_trade(trade, price, "AUTO_TP", leveraged_pnl)
 
         except Exception as e:
             logger.error(f"Position check error #{trade.get('id', '?')}: {e}")

@@ -1,0 +1,37 @@
+==============================================================
+MACRO CONTEXT — MARKET UPDATE (22 Februari 2026)
+Source: KokoCrypto Update (Weekend)
+Tanggal Analisis: 22 Februari 2026
+==============================================================
+
+## STATUS PASAR & BITCOIN SAAT INI
+- Bitcoin bertahan dan konsolidasi di kisaran $60.000 - $65.000 (diskon 13% dari ATH 2021).
+- Selling pressure yang agresif sebelumnya sudah terserap (buying absorption). Retail berjualan, namun market dalam kondisi seimbang (balance).
+- Whales terlihat mulai akumulasi/mencicil di titik ini, mengindikasikan $60.000-$65.000 dianggap sebagai level fundamental yang murah.
+- Secara teknikal (Daily Timeframe): Membentuk pola candlestick **Three River Morning Star**, sebuah potensi sinyal reversal / minor rebound setelah drop tajam.
+- Respons pasar kripto terhadap data inflasi PCE yang lebih tinggi/buruk ternyata cukup positif (harga berhasil recovered & closing higher).
+
+## KEBIJAKAN TARIF TRUMP & POTENSI REFUND
+- **Bypass Aturan:** Setelah Supreme Court menyatakan tarif sebelumnya tidak sah (mengacu pada aturan IEPA), Trump langsung memberikan *counter*. Dia menggunakan celah *Section 122 of Trade Act 1974* untuk memaksakan "Global Tariff".
+- Alih-alih 10%, Trump mendorong agar **15% Global Tariff** diberlakukan secara efektif secepatnya (effective immediately).
+- **Tarif Refund (Katalis Positif):** Imbas pembatalan dari Supreme Court, pemerintah AS mungkin harus mengembalikan dana tarif ke pengusaha dengan total perkiraan **$175 - $185 Miliar**.
+- Gubernur Illinois (dan beberapa state lain) bahkan sudah resmi menagih refund miliaran dolar.
+- **Dampak:** Injeksi likuiditas $175M+ yang kembali ke kantong pengusaha dan ekonomi ini berpotensi memberikan support kuat bagi market dan memicu pergerakan bullish jangka pendek.
+
+## KONFLIK GEOPOLITIK (AS - IRAN)
+- **Tension Meningkat:** Trump secara publik mempertimbangkan *limited military strikes* terhadap Tehran (Iran) sebagai tekanan untuk paksaan kesepakatan nuklir (nuclear deal).
+- **Pola Risiko Akhir Pekan:** Serangan militer Trump secara historis sering kali dilancarkan secara krusial di akhir pekan (Sabtu/Minggu dini hari).
+- Anggota Kongres dari Partai Demokrat memperingatkan Trump agar tidak bertindak sewenang-wenang tanpa konsultasi.
+- **Risiko Market:** Market dapat merespons jatuhnya harga lebih awal (front-run) apabila mulai bermunculan berita "evakuasi warga AS" dari Timur Tengah.
+
+## SEASONALITY STOCK MARKET (SELL IN MAY)
+- Secara historis, pergerakan market pada Q2 - Q3 (April hingga September) cenderung **flat / lemah**.
+- Penyebab fundamental: **Summer Holiday** di AS yang memakan waktu 2-3 bulan (Akhir Mei hingga awal September), mengakibatkan minimnya volume dan aktivitas institusi.
+- Preseden **2018 (Perang Tarif Trump):** Market drop tajam bulan Maret. Market naik di bulan April namun hanya sebatas membentuk *Lower High*. Lalu market kembali tertekan perlahan sepanjang Mei, Juni, hingga Juli.
+- Pola *Sell in May and go away* ini wajib diwaspadai karena bulan-bulan ini memiliki probabilitas kinerja investasi saham/kripto paling buruk selama setahun.
+
+## PROYEKSI PERGERAKAN & STRATEGI
+- **MARET 2026 (REBOUND):** Berpotensi cukup bullish. Secara historis Maret 5 tahun terakhir (kecuali 2025) selalu ditutup hijau. Adanya sentimen $185 Miliar uang likuiditas refund tarif dapat menjadi bahan bakar utama rebound ini.
+- **APRIL 2026 (LOWER HIGH):** Rebound dari Maret kemungkinan mulai mengalami *rejection*. Kenaikan harga kemungkinan hanya untuk *retest* dan menciptakan puncak baru yang lebih rendah (Lower High) dari zona resistance sebelumnya.
+- **MEI - OKTOBER 2026 (BEARISH / SIDELINE):** Memasuki periode rawan *summer break*. Potensi terbentuknya keberlanjutan *selling pressure* hingga menjelang kuartal akhir tahun.
+- **Tindakan Agen:** Manfaatkan sisa momentum di Maret untuk peluang *long* secara selektif, namun bersikap jauh lebih konservatif di pertengahan/akhir April untuk menyiapkan masuk posisi selaras dengan *sell in May*.

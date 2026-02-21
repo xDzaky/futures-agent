@@ -96,27 +96,33 @@ class ChartAnalyzer:
         self.hf_model = "Qwen/Qwen2.5-72B-Instruct"
 
         # Initialize fallback clients with multi-key rotation
-        self._init_fallback_clients()
-
-    def _init_fallback_clients(self):
-        """Initialize fallback clients with rotation."""
-        from groq import Groq
-        from openai import OpenAI
-        
-        g_key = self.groq_keys[self.current_groq_idx] if self.groq_keys else None
-        n_key = self.nvidia_keys[self.current_nvidia_idx] if self.nvidia_keys else None
-        
-        self.groq_client = Groq(api_key=g_key) if g_key else None
-        self.nvidia_client = OpenAI(api_key=n_key, base_url=self.nvidia_base_url) if n_key else None
-        self.hf_client = OpenAI(api_key=self.hf_key, base_url=self.hf_base_url) if self.hf_key else None
-        
+        # ── Cooldown state (persists across key rotations!) ──
+        self._gemini_cooldown_until = 0
+        self._gemini_cooldown_duration = 120  # 2 menit
+        self._groq_cooldown_until = 0
+        self._groq_cooldown_duration = 3600   # 1 jam (daily limit = harus tunggu sampai reset)
         self._last_groq_call = 0
         self._last_nvidia_call = 0
         self._last_hf_call = 0
-        
-        # ── Gemini Cooldown System ──
-        self._gemini_cooldown_until = 0
-        self._gemini_cooldown_duration = 120  # detik (2 menit)
+
+        # Groq daily usage tracker: {key_idx: request_count}
+        self._groq_key_errors: dict = {}  # track which keys have hit limits
+
+        self._init_fallback_clients()
+
+    def _init_fallback_clients(self):
+        """Initialize/refresh client objects only (do NOT reset cooldown state)."""
+        from groq import Groq
+        from openai import OpenAI
+
+        g_key = self.groq_keys[self.current_groq_idx] if self.groq_keys else None
+        n_key = self.nvidia_keys[self.current_nvidia_idx] if self.nvidia_keys else None
+
+        self.groq_client = Groq(api_key=g_key) if g_key else None
+        self.nvidia_client = OpenAI(api_key=n_key, base_url=self.nvidia_base_url) if n_key else None
+        self.hf_client = OpenAI(api_key=self.hf_key, base_url=self.hf_base_url) if self.hf_key else None
+
+        logger.debug(f"Groq client init: key_idx={self.current_groq_idx} (/{len(self.groq_keys)})")
 
     def _get_gemini_client(self):
         """Get Gemini client with rotation."""
@@ -383,6 +389,31 @@ class ChartAnalyzer:
         """Analyze signal text with Groq (with Key Rotation)."""
         if not self.groq_client: return self._keyword_based_analysis(text)
 
+        # ── Cek Groq Cooldown ──
+        if time.time() < self._groq_cooldown_until:
+            remaining = int(self._groq_cooldown_until - time.time())
+            logger.debug(f"Semua Groq key kena limit, cooldown {remaining}s. Fallback ke keyword analysis.")
+            return self._keyword_based_analysis(text)
+
+        # Cari key yang belum kena limit — skip key yang sudah di-blacklist
+        keys_tried = 0
+        start_idx = self.current_groq_idx
+        for _round in range(len(self.groq_keys)):
+            idx = (start_idx + _round) % len(self.groq_keys)
+            if self._groq_key_errors.get(idx, 0) >= 3:
+                # Key ini sudah gagal 3x, skip
+                keys_tried += 1
+                continue
+            self.current_groq_idx = idx
+            self._init_fallback_clients()
+            break
+        else:
+            # Semua key sudah di-blacklist → cooldown 1 jam
+            logger.warning(f"⚠️ Semua {len(self.groq_keys)} Groq key kena limit. Cooldown {self._groq_cooldown_duration}s")
+            self._groq_cooldown_until = time.time() + self._groq_cooldown_duration
+            self._groq_key_errors.clear()  # Reset after cooldown
+            return self._keyword_based_analysis(text)
+
         max_retries = len(self.groq_keys)
         for attempt in range(max_retries):
             try:
@@ -392,27 +423,41 @@ class ChartAnalyzer:
                     f"Message: {text}\n{context}\n\n"
                     "JSON mandatory fields: action (LONG/SHORT/NEWS/SKIP), pair, entry, targets, stop_loss, leverage, confidence, reasoning."
                 )
-                
+
                 response = self.groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     temperature=0.1
                 )
-                
+
                 self._last_groq_call = time.time()
                 return json.loads(response.choices[0].message.content)
-                
+
             except Exception as e:
                 err = str(e)
-                if "429" in err and len(self.groq_keys) > 1:
-                    logger.warning(f"Groq Key {self.current_groq_idx} limit hit. Rotating...")
-                    self.current_groq_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
-                    self._init_fallback_clients()
-                    continue
-                logger.error(f"Groq Error: {e}")
-                return self._keyword_based_analysis(text)
-        return None
+                if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+                    # Mark this key as errored
+                    self._groq_key_errors[self.current_groq_idx] = self._groq_key_errors.get(self.current_groq_idx, 0) + 1
+                    logger.warning(f"Groq Key {self.current_groq_idx} hit limit (error #{self._groq_key_errors[self.current_groq_idx]}). Rotating...")
+
+                    # Try next key
+                    next_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
+                    if self._groq_key_errors.get(next_idx, 0) < 3:
+                        self.current_groq_idx = next_idx
+                        self._init_fallback_clients()
+                        continue
+                    else:
+                        # All keys tried and failed → cooldown
+                        logger.warning(f"⚠️ Semua Groq key limit terkena. Aktifkan cooldown {self._groq_cooldown_duration}s")
+                        self._groq_cooldown_until = time.time() + self._groq_cooldown_duration
+                        self._groq_key_errors.clear()
+                        return self._keyword_based_analysis(text)
+                else:
+                    logger.error(f"Groq Error: {e}")
+                    return self._keyword_based_analysis(text)
+        return self._keyword_based_analysis(text)
+
 
     def _keyword_based_analysis(self, text: str) -> Optional[Dict]:
         """Fallback keyword-based analysis when Groq unavailable."""

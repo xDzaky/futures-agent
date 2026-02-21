@@ -35,6 +35,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 from dotenv import load_dotenv
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 
 load_dotenv()
 
@@ -222,7 +223,18 @@ class RealtimeSignalMonitor:
         self.api_hash = os.getenv("TELEGRAM_API_HASH", "")
         self.phone = os.getenv("TELEGRAM_PHONE", "")
 
-        self.client = TelegramClient("futures_agent_session", self.api_id, self.api_hash)
+        # ── Session: StringSession (Railway/Cloud) vs file session (local dev) ──
+        # StringSession eliminates AuthKeyDuplicatedError on redeploys:
+        # Telegram will gracefully terminate the old connection when new one starts.
+        session_string = os.getenv("TELEGRAM_SESSION_STRING", "")
+        if session_string:
+            session = StringSession(session_string)
+            logger.info("✅ Using StringSession from env (Railway mode)")
+        else:
+            session = "futures_agent_session"  # File session for local dev
+            logger.info("📁 Using file session (local dev mode)")
+
+        self.client = TelegramClient(session, self.api_id, self.api_hash)
         self.use_ta = use_ta
         self.max_leverage = max_leverage
         self.running = True
@@ -403,38 +415,40 @@ class RealtimeSignalMonitor:
         logger.info("  REAL-TIME SIGNAL MONITOR STARTING")
         logger.info("=" * 60)
 
-        # ── Startup retry: handle Railway rolling-deploy AuthKeyDuplicatedError ──
-        # When Railway redeploys, the old container may still be connected.
-        # We retry up to 6 times (every 10s = 60s total) until the old session drops.
+        # ── Connect: StringSession handles redeploy gracefully (no AuthKeyDuplicatedError) ──
+        # With StringSession, Telegram terminates old connection when new one starts.
+        # With file session (local dev), fall back to retry logic.
         from telethon.errors import AuthKeyDuplicatedError as _AuthKeyDuplicated
-        max_connect_attempts = 6
-        for attempt in range(max_connect_attempts):
-            try:
-                await self.client.connect()
-                break  # Connected successfully
-            except _AuthKeyDuplicated:
-                if attempt < max_connect_attempts - 1:
-                    wait_secs = 10 * (attempt + 1)
-                    logger.warning(
-                        f"⚠️  AuthKeyDuplicatedError: Old session still alive "
-                        f"(attempt {attempt + 1}/{max_connect_attempts}). "
-                        f"Waiting {wait_secs}s for old instance to die..."
-                    )
-                    await asyncio.sleep(wait_secs)
-                    # Disconnect and recreate client to get a fresh connection
-                    try:
-                        await self.client.disconnect()
-                    except Exception:
-                        pass
-                    self.client = TelegramClient(
-                        "futures_agent_session", self.api_id, self.api_hash
-                    )
-                else:
-                    logger.error(
-                        "❌ AuthKeyDuplicatedError persists after max retries. "
-                        "Another instance may be stuck. Exiting."
-                    )
-                    raise
+        session_string = os.getenv("TELEGRAM_SESSION_STRING", "")
+        if session_string:
+            # StringSession: connect directly, no retry needed
+            await self.client.connect()
+        else:
+            # File session (local): retry if old instance still holding session
+            max_connect_attempts = 5
+            for attempt in range(max_connect_attempts):
+                try:
+                    await self.client.connect()
+                    break
+                except _AuthKeyDuplicated:
+                    if attempt < max_connect_attempts - 1:
+                        wait_secs = 15
+                        logger.warning(
+                            f"⚠️  AuthKeyDuplicatedError: Old session alive "
+                            f"(attempt {attempt + 1}/{max_connect_attempts}). "
+                            f"Waiting {wait_secs}s..."
+                        )
+                        await asyncio.sleep(wait_secs)
+                        try:
+                            await self.client.disconnect()
+                        except Exception:
+                            pass
+                        self.client = TelegramClient(
+                            "futures_agent_session", self.api_id, self.api_hash
+                        )
+                    else:
+                        logger.error("❌ AuthKeyDuplicatedError: Too many retries. Use StringSession.")
+                        raise
 
         if not await self.client.is_user_authorized():
             logger.error("Telegram not authorized. Run telegram_login.py first.")

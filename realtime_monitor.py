@@ -34,6 +34,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 from dotenv import load_dotenv
+from telethon import TelegramClient
 
 load_dotenv()
 
@@ -402,7 +403,39 @@ class RealtimeSignalMonitor:
         logger.info("  REAL-TIME SIGNAL MONITOR STARTING")
         logger.info("=" * 60)
 
-        await self.client.connect()
+        # ── Startup retry: handle Railway rolling-deploy AuthKeyDuplicatedError ──
+        # When Railway redeploys, the old container may still be connected.
+        # We retry up to 6 times (every 10s = 60s total) until the old session drops.
+        from telethon.errors import AuthKeyDuplicatedError as _AuthKeyDuplicated
+        max_connect_attempts = 6
+        for attempt in range(max_connect_attempts):
+            try:
+                await self.client.connect()
+                break  # Connected successfully
+            except _AuthKeyDuplicated:
+                if attempt < max_connect_attempts - 1:
+                    wait_secs = 10 * (attempt + 1)
+                    logger.warning(
+                        f"⚠️  AuthKeyDuplicatedError: Old session still alive "
+                        f"(attempt {attempt + 1}/{max_connect_attempts}). "
+                        f"Waiting {wait_secs}s for old instance to die..."
+                    )
+                    await asyncio.sleep(wait_secs)
+                    # Disconnect and recreate client to get a fresh connection
+                    try:
+                        await self.client.disconnect()
+                    except Exception:
+                        pass
+                    self.client = TelegramClient(
+                        "futures_agent_session", self.api_id, self.api_hash
+                    )
+                else:
+                    logger.error(
+                        "❌ AuthKeyDuplicatedError persists after max retries. "
+                        "Another instance may be stuck. Exiting."
+                    )
+                    raise
+
         if not await self.client.is_user_authorized():
             logger.error("Telegram not authorized. Run telegram_login.py first.")
             return
@@ -1669,7 +1702,6 @@ def main():
     )
 
     try:
-        import signal
         def handle_sigterm(signum, frame):
             logger.info("Received stop signal (SIGTERM/SIGINT) - shutting down gracefully...")
             monitor.running = False
@@ -1677,15 +1709,15 @@ def main():
             raise KeyboardInterrupt()
 
         # Register signal handlers for graceful shutdown on Railway redeploys
-        signal.signal(signal.SIGTERM, handle_sigterm)
-        signal.signal(signal.SIGINT, handle_sigterm)
+        sig_module.signal(sig_module.SIGTERM, handle_sigterm)
+        sig_module.signal(sig_module.SIGINT, handle_sigterm)
 
         asyncio.run(monitor.run())
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt - exiting")
     except Exception as e:
         if "AuthKeyDuplicatedError" in str(type(e)):
-            logger.error("❌ AuthKeyDuplicatedError: Bot is running simultaneously in multiple places. Terminating safely.")
+            logger.error("❌ AuthKeyDuplicatedError persists even after retry. Another instance may be stuck — exiting.")
         else:
             logger.error(f"Fatal error: {e}")
             import traceback

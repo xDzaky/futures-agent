@@ -1,0 +1,68 @@
+==============================================================
+MACRO CONTEXT — BEAR MARKET UPDATE (18 Februari 2026)
+Source: Live stream KokoCrypto — Second Channel
+Siklus Hari: 1185 dari 4-Year Cycle (2022 → expected bottom 2026)
+==============================================================
+
+## STATUS PASAR SAAT INI
+- Bitcoin: ~67.000 USD | Fear & Greed Index: 8 (Extreme Fear)
+- Status: BEAR MARKET — 5 bulan berturut-turut monthly candle merah
+- Oktober (-3%), November (-17%), Desember (-3%), Januari (-10%), Februari (-13%)
+
+## KONDISI MAKROEKONOMI GLOBAL (BEARISH SIGNAL)
+- US Job Numbers direvisi turun 1 JUTA lapangan kerja di 2025 (revisi terbesar 20 tahun)
+- Total revisi 3 tahun: 2,3 juta pekerjaan hilang (2023: -300k, 2024: -800k, 2025: -1juta)
+- Layoffs Januari 2026: 107.000 orang di-PHK dalam 1 bulan
+- 6-bulan average layoff: 80.000/bulan — tertinggi sejak COVID 2020
+- UK Unemployment naik ke 5,2% (level COVID 2020)
+- CPI real (TrueFlation): 0,87% vs laporan resmi 2,4% → The Fed BERBOHONG tentang inflasi
+- Mortgage rates turun bukan karena kebijakan, tapi karena buyers menyusut drastis
+- Jumlah home buyers aktif: 1,3 juta → LEBIH RENDAH dari saat COVID
+
+## SINYAL QE (QUANTITATIVE EASING) SEGERA DATANG
+- Jerome Powell sudah HINT liquidity event di April 2026 (FOMC Desember 2025)
+- The Fed janji beli $20-25M bond/bulan, tapi realisasi: $40M (Desember) dan $70M (Januari)
+- The Fed sedang PANIK — injeksi tertinggi sejak COVID
+- US National Debt menuju $64 TRILIUN dalam 10 tahun jika tidak ada perubahan
+- Jerome Powell keceplosan hint: $40 TRILIUN akan diprint saat QE dimulai
+- T-Bill Buyback sudah berjalan: Januari, Februari, Maret, April 2026
+
+## PROYEKSI SIKLUS BITCOIN
+- Bear market cycle: Wave 1 (turun) → Wave 2 (turun) → Wave 3 (sideways) → Wave 4 (BOTTOM)
+- Simulasi: Bitcoin akan naik sedikit (local top), lalu turun lebih dalam ke cycle low
+- Target four-year cycle low: PALING CEPAT Q3 2026 (Juli-September)
+- Harga cycle low perkiraan: $40.000-$60.000 (mungkin lebih rendah ke $30.000)
+- Setelah bottom: Bull market TERBESAR yang pernah ada karena QE $40 triliun
+
+## ROTASI GLOBAL (PENTING UNTUK TRADING)
+- Hedge fund global membeli saham Asia dalam jumlah REKOR (Jepang, Hongkong, Indonesia)
+- Warren Buffett: Sudah 2 tahun lalu jual Apple/tech dan pindah ke Nikkei (Jepang)
+- Volume beli saham Asia: 8:1 vs short — overwhelmingly bullish
+- Investor keluar dari saham AS → masuk ke aset-aset Asia
+- Ini menandakan distribusi besar dari saham US Technology sedang berlangsung
+
+## DATA ETF BITCOIN
+- ETF BTC outflows: 3,7 miliar dolar (rekor outflow investor baru terbesar sepanjang sejarah)
+- 90 hari terakhir: Lebih banyak merah daripada hijau di flow ETF
+- Michael Strategy: Masih hold 700.000 BTC, tidak akan jual meskipun ke $8.000
+
+## EMAS & ASET LAIN
+- Emas: Belum mau turun meskipun sudah sangat overbought (parabolik)
+- Saham US (S&P 500): Distribusi top terjadi, 7 Big Tech semua bikin lower highs
+- Expected emas dan saham US turun berbarengan dengan BTC di Maret-April 2026
+- Silver: Sudah mulai turun, masih ada buyers di support $70
+
+## IMPLIKASI UNTUK TRADING BOT
+- TREND UTAMA: BEARISH untuk semua kripto (termasuk ETH, SOL, altcoin)
+- LONG sangat berisiko untuk altcoin — ETH bisa turun 50% lagi dari sekarang
+- BTC: Potensi long hanya saat ada berita bullish catalyst (Clarity Act, QE)
+- Konflik Iran-AS: BEARISH untuk semua pasar KECUALI emas (BULLISH untuk emas)
+- Jika QE diumumkan: SANGAT BULLISH untuk BTC jangka panjang
+- Strategi terbaik: DCA (Dollar Cost Average) di setiap penurunan BTC, bukan all-in
+
+## CATATAN PENTING UNTUK BOT
+- Jangan masuk LONG altcoin dalam kondisi ini — risiko terlalu tinggi
+- SKIP sinyal altcoin yang tidak punya utilitas jelas (terutama meme coin)
+- Untuk BTC: SHORT setup valid sampai ada konfirmasi bottom
+- Setiap rally BTC adalah potensi SHORT, bukan LONG — bear market structure aktif
+==============================================================

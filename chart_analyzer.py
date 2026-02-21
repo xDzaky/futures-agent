@@ -44,6 +44,15 @@ try:
 except ImportError:
     HAS_GEMINI = False
 
+# Macro Intuition System
+try:
+    from macro_context import get_macro_system_prompt, get_macro_summary
+    HAS_MACRO = True
+except ImportError:
+    HAS_MACRO = False
+    def get_macro_system_prompt(): return ""
+    def get_macro_summary(): return {"status": "NO_MODULE"}
+
 load_dotenv()
 logger = logging.getLogger("chart_analyzer")
 
@@ -144,13 +153,23 @@ class ChartAnalyzer:
         return self._combine_analyses(text, text_analysis, image_analysis, channel)
 
     def _analyze_with_gemini_multimodal(self, text: str, images: List) -> Optional[Dict]:
-        """Performs multi-modal analysis using Gemini 2.x with Key Rotation."""
+        """Performs multi-modal analysis using Gemini 2.x with Key Rotation + Macro Intuition."""
         max_retries = len(self.gemini_keys)
-        
+
+        # ── Load Macro Context (Intuisi Makro) ────────────────────────────
+        macro_prompt = get_macro_system_prompt()
+        if macro_prompt:
+            macro_summary = get_macro_summary()
+            logger.info(f"📊 Macro context: {macro_summary.get('files', 0)} file(s), "
+                        f"{macro_summary.get('chars', 0)} chars, "
+                        f"latest: {macro_summary.get('latest_file', 'none')}")
+        else:
+            logger.debug("No macro context found — running without macro intuition")
+
         for attempt in range(max_retries):
             client = self._get_gemini_client()
             if not client: return None
-            
+
             try:
                 # ── FIX: import types BEFORE if-images block (always needed for GenerateContentConfig)
                 from google.genai import types
@@ -170,11 +189,27 @@ class ChartAnalyzer:
                         img_bytes = img_data
                     contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
+                # ── Build Master Prompt with Macro Intuition ──────────────
+                macro_section = (
+                    f"{macro_prompt}\n\n"
+                    if macro_prompt else
+                    ""
+                )
+
                 prompt = (
-                    "Act as a Master Crypto Futures Trader. Analyze this data (text and/or chart image).\n"
-                    "Use Smart Money Concepts (SMC), Trend Analysis, and Volume. "
-                    "Determine if this is a high-probability trade setup.\n\n"
-                    "Respond ONLY with a JSON object:\n"
+                    f"{macro_section}"
+                    "You are a Master Crypto Futures Trader with macro market wisdom.\n"
+                    "Analyze the provided signal data (text and/or chart image) using:\n"
+                    "  1. Smart Money Concepts (SMC): Order Blocks, Liquidity Grabs, Fair Value Gaps\n"
+                    "  2. Technical Analysis: Support/Resistance, RSI, EMA, Volume\n"
+                    "  3. Macro Alignment: Cross-check signal against the MACRO CONTEXT above\n\n"
+                    "CRITICAL RULES:\n"
+                    "  - Do NOT enter LONG on altcoins during confirmed bear market unless macro says otherwise\n"
+                    "  - If macro is BEARISH and signal is LONG: reduce confidence below 0.6 or SKIP\n"
+                    "  - If there is war/conflict news in macro: avoid all except GOLD pairs\n"
+                    "  - Keep leverage MAX 10x during bear market (5x if macro is very negative)\n"
+                    "  - Only A+ setups should pass — quality over quantity\n\n"
+                    "Respond ONLY with a valid JSON object (no markdown, no extra text):\n"
                     "{\n"
                     '    "action": "LONG/SHORT/NEWS/SKIP",\n'
                     '    "pair": "BASE/USDT",\n'
@@ -183,7 +218,8 @@ class ChartAnalyzer:
                     '    "stop_loss": float,\n'
                     '    "leverage": int,\n'
                     '    "confidence": 0.0-1.0,\n'
-                    '    "reasoning": "Be precise, mention support/resistance, RSI, and chart pattern"\n'
+                    '    "macro_aligned": true/false,\n'
+                    '    "reasoning": "Mention: chart pattern, SMC structure, macro alignment status"\n'
                     "}"
                 )
 
@@ -194,8 +230,27 @@ class ChartAnalyzer:
                 )
 
                 result = self._extract_json(response.text)
-                if result and result.get("action") != "SKIP":
-                    logger.info(f"✓ Gemini Analysis Success (Key {self.current_gemini_idx})")
+                if result:
+                    # ── Macro Safety Cap: Auto-limit leverage in bear market ──
+                    if macro_prompt and result.get("leverage", 0) > 10:
+                        original_lev = result["leverage"]
+                        result["leverage"] = 10
+                        result["reasoning"] = (
+                            result.get("reasoning", "") +
+                            f" [MACRO CAP: leverage reduced from {original_lev}x to 10x — bear market active]"
+                        )
+                        logger.info(f"⚠️  Macro Safety Cap: leverage {original_lev}x → 10x")
+
+                    # ── Log macro alignment ────────────────────────────────
+                    macro_aligned = result.get("macro_aligned", True)
+                    if not macro_aligned:
+                        logger.warning(f"⚠️  Gemini: Signal NOT aligned with macro context! "
+                                       f"action={result.get('action')}, "
+                                       f"confidence={result.get('confidence')}")
+
+                    if result.get("action") != "SKIP":
+                        logger.info(f"✓ Gemini + Macro Analysis OK (Key {self.current_gemini_idx}) "
+                                    f"| macro_aligned={macro_aligned}")
                     return result
                 return result
 

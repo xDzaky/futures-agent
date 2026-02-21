@@ -1,0 +1,91 @@
+==============================================================
+MACRO CONTEXT — MARKET UPDATE (20-21 Februari 2026)
+Source: Live stream KokoCrypto — Second Channel
+Siklus Hari: 1187 dari 4-Year Cycle
+Tanggal Analisis: 20 Februari 2026
+==============================================================
+
+## STATUS PASAR SAAT INI
+- Bitcoin: ~67.000 USD | Fear & Greed Index: 7 (Single-digit Extreme Fear — REKOR BARU)
+- Fear index di bawah 30 selama 4 BULAN berturut-turut (Nov, Des, Jan, Feb)
+- Status: SIDEWAYS menuju BEARISH — bear market structure aktif
+
+## CATALYST BULLISH YANG SEDANG DIPANTAU
+1. CLARITY ACT — Deadline: 1 MARET 2026 (10 hari lagi dari tanggal analisis)
+   - Regulasi crypto AS yang bisa jadi SANGAT BULLISH untuk BTC dan Stablecoin
+   - Tidak ada support untuk altcoin — hanya BTC dan Stablecoin diuntungkan
+   - Jika disetujui: Potensi rally BTC ke area $80.000-$90.000
+   
+2. DATA EKONOMI PENTING (sudah keluar tanggal 20 Feb):
+   - US Q4 GDP Data (jam 20:30 WIB)
+   - PCE Inflation (jam 20:30 WIB)  
+   - Manufacturing PMI (jam 21:45 WIB)
+   - Supreme Court ruling tentang tarif Trump (masih pending — MARKET MOVER)
+
+## ANALISIS TEKNIKAL BITCOIN (SHORT TERM)
+- Siklus hari: 1187 dari 1215 → Hanya 13-26 hari lagi menuju LOCAL TOP
+- Expected local top: Window 13-26 hari (sekitar akhir Februari - pertengahan Maret)
+- Setelah local top: Penurunan menuju weekly cycle low (April-Mei 2026)
+- Kemudian bottom lebih dalam di Juni 2026
+
+## PROYEKSI PRICE ACTION BTC (SANGAT PENTING UNTUK BOT)
+- SHORT TERM (13-26 hari): **POTENSI NAIK** — momentum recovery sebelum turun lagi
+  - Potential target: $75.000 - $90.000 (tergantung catalyst)
+  - Ini adalah TERAKHIR kesempatan long sebelum penurunan lebih dalam
+- MEDIUM TERM (Maret-April): Local top → koreksi signifikan
+- LONG TERM (April-Juni): Bear market low berlanjut
+
+## KONFLIK GEOPOLITIK (IRAN-AS)
+- Trump siap lakukan "extended military assault" ke Iran
+- USS Abraham Lincoln sudah tiba di area Iran (berangkat akhir Januari, tiba 2 minggu kemudian)
+- Currency Iran sudah kolaps: 1 miliar IRR = tidak ada nilai
+- DAMPAK PASAR:
+  - BEARISH untuk semua pasar crypto, saham, dan aset berisiko
+  - BULLISH untuk emas (safe haven)
+  - Jika eskalasi lebih lanjut: Risk-off global, crypto bisa turun tajam
+
+## TARIF TRUMP (SUPREME COURT)
+- Tarif Trump masih di meja Supreme Court, sudah delay 3x
+- Jika DITOLAK (tarif batal): SANGAT BULLISH untuk markets
+- Jika DILANJUTKAN (tarif bertambah): BEARISH untuk markets
+- Masih belum ada keputusan final
+
+## FEDERAL RESERVE & MAKRO
+- Injeksi likuiditas: $18,5 MILIAR minggu ini ke sistem perbankan AS
+- Ini adalah injeksi terbesar keempat sejak COVID (The Fed PANIK)
+- Rate cut ekspektasi: Hampir 0% untuk Maret — tidak ada perubahan
+- QE (Quantitative Easing) diproyeksikan April 2026 saat hutang Treasury jatuh tempo
+
+## ALTCOIN OUTLOOK
+- Altcoin dominance turun → orang tidak mau main altcoin
+- ETH, SOL: Masih sangat berisiko untuk LONG — bisa turun 50% lagi
+- Old-season: TIDAK AKAN TERJADI di cycle ini karena terlalu banyak altcoin/meme coin
+- Yang punya utilitas terbaik: XRP (kerja sama bank), Solana (meme coin ecosystem)
+
+## EMAS & PASAR LAIN
+- Emas: 5x percobaan tembus $5.000 — masih resistance kuat di sana
+- Emas SHORT TERM: Masih ada buyers, masih bisa naik sedikit
+- Emas LONG TERM: Expected turun berbarengan dengan BTC di Maret-April
+- Saham US: Distribusi berlanjut, lower highs untuk semua Big Tech
+
+## STRATEGI TRADING YANG DISARANKAN (JANGAN ASAL ENTRY)
+
+### Kondisi VALID untuk LONG BTC:
+✅ Harga mendekati support kuat (area $62.000-$65.000)
+✅ Ada catalyst jelas (Clarity Act disetujui, QE diumumkan, tarif Trump dibatalkan)
+✅ Volume beli naik signifikan
+✅ Fear & Greed naik dari single-digit (sinyal reversal)
+
+### Kondisi WAJIB SKIP / SHORT:
+❌ Ada berita perang/konflik Iran-AS yang eskalasi
+❌ Altcoin tanpa utilitas jelas (meme coin, tidak ada ekosistem)
+❌ Sinyal Telegram tanpa konfirmasi visual di chart
+❌ Leverage di atas 15x (terlalu berisiko di bear market)
+❌ Setelah local top terbentuk di Maret (masuk area bearish)
+
+## IMPLIKASI UNTUK BOT
+- Prioritas: KUALITAS sinyal di atas KUANTITAS trade
+- Hindari FOMO — banyak pump kecil adalah JEBAKAN sebelum dump besar
+- Window bullish terbatas: hanya 13-26 hari ke depan dari tanggal ini
+- Setelah itu: Bot harus LEBIH KONSERVATIF dan pilih SHORT lebih sering
+==============================================================

@@ -64,8 +64,18 @@ class ChartAnalyzer:
         self.current_gemini_idx = 0
         self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         
-        self.groq_key = os.getenv("GROQ_API_KEY", "")
-        self.nvidia_key = os.getenv("NVIDIA_API_KEY", "")
+        # Groq API Key Rotation
+        self.groq_keys = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",") if k.strip()]
+        if not self.groq_keys and os.getenv("GROQ_API_KEY"):
+            self.groq_keys = [os.getenv("GROQ_API_KEY")]
+        self.current_groq_idx = 0
+
+        # NVIDIA API Key Rotation
+        self.nvidia_keys = [k.strip() for k in os.getenv("NVIDIA_API_KEYS", "").split(",") if k.strip()]
+        if not self.nvidia_keys and os.getenv("NVIDIA_API_KEY"):
+            self.nvidia_keys = [os.getenv("NVIDIA_API_KEY")]
+        self.current_nvidia_idx = 0
+
         self.hf_key = os.getenv("HUGGINGFACE_API_KEY", "")
         
         # ... fallback models
@@ -76,48 +86,21 @@ class ChartAnalyzer:
         self.hf_base_url = "https://router.huggingface.co/v1"
         self.hf_model = "Qwen/Qwen2.5-72B-Instruct"
 
-        # Initialize Groq (PRIMARY - fastest, 30 req/min)
-        self.groq_client = None
-        if self.groq_key:
-            try:
-                from groq import Groq
-                self.groq_client = Groq(api_key=self.groq_key)
-                logger.info("✓ Groq Llama 3.3 70B initialized [PRIMARY]")
-            except Exception as e:
-                logger.warning(f"Groq init failed: {e}")
+        # Initialize fallback clients with multi-key rotation
+        self._init_fallback_clients()
 
-        # Initialize NVIDIA NIM (multiple models for different tasks)
-        self.nvidia_client = None
-        if self.nvidia_key:
-            try:
-                from openai import OpenAI
-                self.nvidia_client = OpenAI(
-                    base_url=self.nvidia_base_url,
-                    api_key=self.nvidia_key,
-                    timeout=45.0,
-                )
-                logger.info(
-                    f"✓ NVIDIA NIM initialized [Vision: {self.nvidia_vision_model}, "
-                    f"Analysis: {self.nvidia_analysis_model}, Validator: {self.nvidia_validator_model}]"
-                )
-            except Exception as e:
-                logger.warning(f"NVIDIA NIM init failed: {e}")
-
-        # Initialize Hugging Face (LAST RESORT - 30 req/hour)
-        self.hf_client = None
-        if self.hf_key:
-            try:
-                from openai import OpenAI
-                self.hf_client = OpenAI(
-                    base_url=self.hf_base_url,
-                    api_key=self.hf_key,
-                    timeout=60.0,
-                )
-                logger.info(f"✓ Hugging Face Qwen2.5-72B initialized [LAST RESORT]")
-            except Exception as e:
-                logger.warning(f"Hugging Face init failed: {e}")
-
-        # Rate limiting
+    def _init_fallback_clients(self):
+        """Initialize fallback clients with rotation."""
+        from groq import Groq
+        from openai import OpenAI
+        
+        g_key = self.groq_keys[self.current_groq_idx] if self.groq_keys else None
+        n_key = self.nvidia_keys[self.current_nvidia_idx] if self.nvidia_keys else None
+        
+        self.groq_client = Groq(api_key=g_key) if g_key else None
+        self.nvidia_client = OpenAI(api_key=n_key, base_url=self.nvidia_base_url) if n_key else None
+        self.hf_client = OpenAI(api_key=self.hf_key, base_url=self.hf_base_url) if self.hf_key else None
+        
         self._last_groq_call = 0
         self._last_nvidia_call = 0
         self._last_hf_call = 0
@@ -169,21 +152,22 @@ class ChartAnalyzer:
             if not client: return None
             
             try:
-                # ── Prepare contents ──────────────────────────────────────
+                # ── FIX: import types BEFORE if-images block (always needed for GenerateContentConfig)
+                from google.genai import types
+
+                # ── Prepare contents ───────────────────────────────────────
                 contents = []
                 if text:
                     contents.append(f"SIGNAL TEXT:\n{text}")
-                
+
                 # Load first image only for speed
                 if images:
-                    from google.genai import types
                     img_data = images[0]
                     if isinstance(img_data, str):
                         with open(img_data, "rb") as f:
                             img_bytes = f.read()
                     else:
                         img_bytes = img_data
-                    
                     contents.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
                 prompt = (
@@ -199,32 +183,30 @@ class ChartAnalyzer:
                     '    "stop_loss": float,\n'
                     '    "leverage": int,\n'
                     '    "confidence": 0.0-1.0,\n'
-                    '    "reasoning": "Be precise, mention support/resistance, RSI, and chart pattern if visible"\n'
+                    '    "reasoning": "Be precise, mention support/resistance, RSI, and chart pattern"\n'
                     "}"
                 )
-                
+
                 response = client.models.generate_content(
                     model=self.gemini_model,
                     contents=[prompt] + contents,
-                    config=types.GenerateContentConfig(
-                        # response_mime_type="application/json" # Optional
-                        temperature=0.2
-                    )
+                    config=types.GenerateContentConfig(temperature=0.2)
                 )
-                
+
                 result = self._extract_json(response.text)
                 if result and result.get("action") != "SKIP":
                     logger.info(f"✓ Gemini Analysis Success (Key {self.current_gemini_idx})")
                     return result
-                
-                # If it's a SKIP, we just return None to let fallback happen if needed, 
-                # or return the SKIP result if we trust Gemini enough.
                 return result
 
             except Exception as e:
                 err = str(e)
-                if "429" in err or "quota" in err.lower():
-                    logger.warning(f"Gemini Key {self.current_gemini_idx} hit quota limit. Rotating...")
+                if "429" in err or "quota" in err.lower() or "RESOURCE_EXHAUSTED" in err:
+                    logger.warning(f"Gemini Key {self.current_gemini_idx} quota limit. Rotating...")
+                    self.current_gemini_idx = (self.current_gemini_idx + 1) % len(self.gemini_keys)
+                    continue
+                elif "API_KEY_INVALID" in err or "INVALID_ARGUMENT" in err:
+                    logger.warning(f"Gemini Key {self.current_gemini_idx} INVALID. Skipping to next...")
                     self.current_gemini_idx = (self.current_gemini_idx + 1) % len(self.gemini_keys)
                     continue
                 else:
@@ -328,87 +310,38 @@ class ChartAnalyzer:
         return None
 
     def _analyze_text_signal(self, text: str, image_context: Optional[Dict] = None) -> Optional[Dict]:
-        """Analyze signal text with Groq (supports Indonesian/English)."""
-        if not self.groq_client:
-            return self._keyword_based_analysis(text)  # Fallback
+        """Analyze signal text with Groq (with Key Rotation)."""
+        if not self.groq_client: return self._keyword_based_analysis(text)
 
-        # Rate limit with exponential backoff
-        now = time.time()
-        wait_time = max(0, 3 - (now - self._last_groq_call))
-        if wait_time > 0:
-            time.sleep(wait_time)
-
-        try:
-            context = ""
-            if image_context:
-                context = f"\nChart image analysis context: {json.dumps(image_context, default=str)}"
-
-            prompt = f"""You are an expert crypto trading signal analyzer. Analyze this message from a Telegram crypto channel.
-The message may be in Indonesian (Bahasa Indonesia) or English.
-
-Message:
----
-{text[:2000]}
----
-{context}
-
-Extract the trading signal and respond with a JSON object:
-{{
-    "action": "LONG/SHORT/NEWS/SKIP",
-    "pair": "BTC/USDT etc",
-    "entry": null or price number,
-    "targets": [] or [list of target prices],
-    "stop_loss": null or price number,
-    "leverage": null or number,
-    "confidence": 0.0-1.0,
-    "sentiment": "BULLISH/BEARISH/NEUTRAL",
-    "is_signal": true/false,
-    "is_news": true/false,
-    "reasoning": "brief explanation of the analysis",
-    "key_info": "any critical market info extracted"
-}}
-
-Rules:
-- If it's a clear BUY/LONG signal → action=LONG
-- If it's a clear SELL/SHORT signal → action=SHORT
-- If it's news/analysis without clear direction → action=NEWS
-- If it's chat/spam/unrelated → action=SKIP
-- Indonesian words: "naik/bullish/breakout/pump" = LONG, "turun/bearish/breakdown/dump" = SHORT
-- "expecting turun" or "koreksi" = SHORT bias
-- "breakout ke atas" = LONG bias
-- Extract ALL price levels mentioned
-- IMPORTANT: Respond ONLY with the JSON object"""
-
-            response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500,
-            )
-
-            self._last_groq_call = time.time()
-            result_text = response.choices[0].message.content.strip()
-            result = self._extract_json(result_text)
-            if result:
-                return result
-
-        except Exception as e:
-            error_msg = str(e)
-            # Check for rate limit error
-            if "429" in error_msg or "rate_limit" in error_msg.lower():
-                logger.warning(f"Groq rate limit hit - using keyword fallback")
-                # Extract wait time from error if available
-                import re
-                match = re.search(r'try again in ([\d.]+)s', error_msg)
-                if match:
-                    wait_seconds = float(match.group(1))
-                    self._last_groq_call = time.time()  # Reset timer
-                    logger.info(f"Will retry after {wait_seconds:.1f}s")
-                return self._keyword_based_analysis(text)  # Fallback to keyword
-            else:
-                logger.error(f"Groq analysis error: {e}")
+        max_retries = len(self.groq_keys)
+        for attempt in range(max_retries):
+            try:
+                context = f"\nChart image context: {json.dumps(image_context)}" if image_context else ""
+                prompt = (
+                    "Extract trading signal details into JSON.\n"
+                    f"Message: {text}\n{context}\n\n"
+                    "JSON mandatory fields: action (LONG/SHORT/NEWS/SKIP), pair, entry, targets, stop_loss, leverage, confidence, reasoning."
+                )
+                
+                response = self.groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1
+                )
+                
                 self._last_groq_call = time.time()
-
+                return json.loads(response.choices[0].message.content)
+                
+            except Exception as e:
+                err = str(e)
+                if "429" in err and len(self.groq_keys) > 1:
+                    logger.warning(f"Groq Key {self.current_groq_idx} limit hit. Rotating...")
+                    self.current_groq_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
+                    self._init_fallback_clients()
+                    continue
+                logger.error(f"Groq Error: {e}")
+                return self._keyword_based_analysis(text)
         return None
 
     def _keyword_based_analysis(self, text: str) -> Optional[Dict]:

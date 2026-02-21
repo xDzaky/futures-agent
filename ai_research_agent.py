@@ -26,22 +26,25 @@ class AIResearchAgent:
     """Autonomous AI researcher for crypto futures trading."""
 
     def __init__(self):
-        self.groq_key = os.getenv("GROQ_API_KEY", "")
-        self.tavily_key = os.getenv("TAVILY_API_KEY", "")
+        # Groq Rotation
+        self.groq_keys = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",") if k.strip()]
+        if not self.groq_keys and os.getenv("GROQ_API_KEY"):
+            self.groq_keys = [os.getenv("GROQ_API_KEY")]
+        self.current_groq_idx = 0
+
+        # Tavily Rotation
+        self.tavily_keys = [k.strip() for k in os.getenv("TAVILY_API_KEYS", "").split(",") if k.strip()]
+        if not self.tavily_keys and os.getenv("TAVILY_API_KEY"):
+            self.tavily_keys = [os.getenv("TAVILY_API_KEY")]
+        self.current_tavily_idx = 0
+        
+        self.cryptopanic_key = os.getenv("CRYPTOPANIC_API_KEY", "")
         
         self.enable_research = os.getenv("ENABLE_AI_RESEARCH", "true").lower() == "true"
         self.research_interval = int(os.getenv("RESEARCH_INTERVAL_MINUTES", "5"))
-        self.max_searches_per_day = int(os.getenv("MAX_RESEARCH_SEARCHES_PER_DAY", "50"))
+        self.max_searches_per_day = int(os.getenv("MAX_RESEARCH_SEARCHES_PER_DAY", "100")) # Boosted
         
-        # Initialize Groq client
-        self.groq_client = None
-        if self.groq_key:
-            try:
-                from groq import Groq
-                self.groq_client = Groq(api_key=self.groq_key)
-                logger.info("Groq client initialized for AI research")
-            except Exception as e:
-                logger.warning(f"Groq init failed: {e}")
+        self._init_clients()
         
         # State
         self.searches_today = 0
@@ -49,6 +52,19 @@ class AIResearchAgent:
         self.last_research = None
         self.trending_coins = []
         self.last_trending_update = None
+
+    def _init_clients(self):
+        """Initialize clients for research."""
+        g_key = self.groq_keys[self.current_groq_idx] if self.groq_keys else None
+        if g_key:
+            try:
+                from groq import Groq
+                self.groq_client = Groq(api_key=g_key)
+            except Exception as e:
+                logger.warning(f"Groq init failed: {e}")
+                self.groq_client = None
+        else:
+            self.groq_client = None
 
     def run_research_cycle(self) -> List[Dict]:
         """Run a full research cycle."""
@@ -165,104 +181,65 @@ class AIResearchAgent:
         return self.trending_coins
 
     def _search_news(self, symbol: str) -> List[Dict]:
-        """Search latest news for a coin using Tavily."""
-        if not self.tavily_key:
-            return []
+        """Search latest news with Tavily Key Rotation."""
+        if not self.tavily_keys: return []
         
-        try:
-            from tavily import TavilyClient
-            client = TavilyClient(api_key=self.tavily_key)
-            
-            response = client.search(
-                query=f"{symbol} cryptocurrency news analysis",
-                search_depth="basic",
-                max_results=3,
-                days=2,
-            )
-            
-            results = response.get("results", [])
-            news = []
-            
-            for r in results:
-                news.append({
-                    "title": r.get("title", ""),
-                    "content": r.get("content", ""),
-                    "url": r.get("url", ""),
-                })
-            
-            logger.info(f"  Found {len(news)} news articles for {symbol}")
-            return news
-        
-        except Exception as e:
-            logger.debug(f"Tavily search error for {symbol}: {e}")
-            return []
+        max_retries = len(self.tavily_keys)
+        for attempt in range(max_retries):
+            key = self.tavily_keys[self.current_tavily_idx]
+            try:
+                from tavily import TavilyClient
+                client = TavilyClient(api_key=key)
+                
+                response = client.search(
+                    query=f"{symbol} crypto news sentiment",
+                    search_depth="advanced", # Quality over quantity
+                    max_results=5,
+                    days=1,
+                )
+                
+                results = response.get("results", [])
+                news = []
+                for r in results:
+                    news.append({"title": r.get("title", ""), "content": r.get("content", ""), "url": r.get("url", "")})
+                
+                return news
+            except Exception as e:
+                if "limit" in str(e).lower() and len(self.tavily_keys) > 1:
+                    logger.warning(f"Tavily Key {self.current_tavily_idx} hit limit. Rotating...")
+                    self.current_tavily_idx = (self.current_tavily_idx + 1) % len(self.tavily_keys)
+                    continue
+                logger.error(f"Tavily error: {e}")
+                break
+        return []
 
     def _analyze_and_generate_signal(self, symbol: str, coin_data: Dict, news: List[Dict]) -> Optional[Dict]:
-        """AI analysis and generate trading signal."""
-        if not self.groq_client:
-            return None
+        """AI analysis with Groq Key Rotation."""
+        if not self.groq_client: return None
         
-        news_text = "\n".join([f"- {n['title']}" for n in news[:3]]) if news else "No recent news"
-        
-        prompt = f"""You are an expert crypto futures trader. Analyze this opportunity.
-
-COIN: {symbol}
-24h Change: {coin_data.get('price_change_24h', 0):+.2f}%
-Volume: ${coin_data.get('volume_24h', 0):,.0f}
-Market Cap: ${coin_data.get('market_cap', 0):,.0f}
-
-RECENT NEWS:
-{news_text}
-
-Generate a trading signal as JSON:
-{{
-  "action": "LONG" or "SHORT" or "SKIP",
-  "confidence": 0.0-1.0 (minimum 0.70 for action),
-  "reasoning": "Brief explanation",
-  "entry_price": price or null for market,
-  "stop_loss": price,
-  "tp1": price,
-  "tp2": price,
-  "tp3": price,
-  "leverage": 2-20
-}}
-
-RULES:
-- Only LONG if momentum & sentiment align bullish
-- Only SHORT if momentum & sentiment align bearish  
-- SKIP if unclear or low confidence (<70%)
-- Stop loss must be reasonable (2-5% for majors)"""
-
-        try:
-            response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": "You are a conservative crypto futures trader."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.3,
-                max_tokens=600,
-                response_format={"type": "json_object"},
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            
-            # Validate
-            if result.get("action") not in ("LONG", "SHORT", "SKIP"):
-                result["action"] = "SKIP"
-            
-            if result.get("confidence", 0) < 0.70 and result["action"] != "SKIP":
-                result["action"] = "SKIP"
-            
-            result["symbol"] = f"{symbol}/USDT"
-            result["source"] = "AI_RESEARCH"
-            result["generated_at"] = datetime.now().isoformat()
-            
-            return result
-        
-        except Exception as e:
-            logger.error(f"AI analysis error for {symbol}: {e}")
-            return None
+        max_retries = len(self.groq_keys)
+        for attempt in range(max_retries):
+            try:
+                news_text = "\n".join([f"- {n['title']}" for n in news[:5]])
+                prompt = f"Analyze {symbol} trade: {json.dumps(coin_data)}\nNews: {news_text}"
+                
+                response = self.groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.2
+                )
+                
+                return json.loads(response.choices[0].message.content)
+            except Exception as e:
+                if "429" in str(e) and len(self.groq_keys) > 1:
+                    logger.warning(f"Research Groq Key {self.current_groq_idx} limit. Rotating...")
+                    self.current_groq_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
+                    self._init_clients()
+                    continue
+                logger.error(f"Research Groq error: {e}")
+                break
+        return None
 
     def get_research_status(self) -> Dict:
         """Get current research agent status."""

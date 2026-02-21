@@ -13,10 +13,14 @@ __pycache__/
 .env
 .env.local
 
-# Database files (ephemeral)
+# Database files — stored in Railway Volume, never in git!
 *.db
 *.sqlite
 *.sqlite3
+*.db-wal
+*.db-shm
+*.db-journal
+ai_accuracy.json
 
 # Log files
 *.log
@@ -65,3 +69,8 @@ telegram_login.py
 *_state.json
 *_output.log
 *_debug.log
+
+# Macro knowledge files managed via Railway Volume
+# (Initial files are committed, but runtime updates go to Volume)
+# Do NOT gitignore the whole macro_knowledge/ folder — initial files needed for Railway
+

@@ -14,7 +14,18 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("trade_db")
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "futures_trades.db")
+# ── Persistent Storage Path ────────────────────────────────────────────────
+# Railway: set RAILWAY_VOLUME_MOUNT_PATH in project settings → Volume
+# This path survives redeploys. Without it, DB is lost on every push.
+# Local dev: falls back to project directory
+DATA_DIR = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", os.path.dirname(__file__))
+if DATA_DIR != os.path.dirname(__file__):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    logger.info(f"✅ Using Railway persistent volume: {DATA_DIR}")
+else:
+    logger.info("ℹ️  Using local directory for DB (no Railway volume configured)")
+
+DB_PATH = os.path.join(DATA_DIR, "futures_trades.db")
 
 
 class TradeDB:

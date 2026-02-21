@@ -622,8 +622,16 @@ class ChartAnalyzer:
 
         combined = "\n---\n".join(news_texts)
 
-        try:
-            prompt = f"""Analyze these crypto news messages from Telegram (may be in Indonesian/English).
+        max_retries = len(self.groq_keys)
+        for attempt in range(max_retries):
+            try:
+                # ── Cek Cooldown Groq ──
+                if hasattr(self, "_groq_cooldown_until") and time.time() < self._groq_cooldown_until:
+                    remaining = int(self._groq_cooldown_until - time.time())
+                    logger.debug(f"Groq sedang dalam cooldown ({remaining}s tersisa). Lewati text analysis.")
+                    break
+
+                prompt = f"""Analyze these crypto news messages from Telegram (may be in Indonesian/English).
 Give overall market sentiment and key events.
 
 Messages:
@@ -642,20 +650,31 @@ Respond with JSON:
 
 Respond ONLY with JSON."""
 
-            response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500,
-            )
+                response = self.groq_client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=500,
+                )
 
-            result_text = response.choices[0].message.content.strip()
-            result = self._extract_json(result_text)
-            if result:
-                return result
+                result_text = response.choices[0].message.content.strip()
+                result = self._extract_json(result_text)
+                if result:
+                    return result
 
-        except Exception as e:
-            logger.error(f"News analysis error: {e}")
+            except Exception as e:
+                err = str(e)
+                if "429" in err and len(self.groq_keys) > 1:
+                    logger.warning(f"Groq Key {self.current_groq_idx} limit hit di news context. Rotating...")
+                    self.current_groq_idx = (self.current_groq_idx + 1) % len(self.groq_keys)
+                    self._init_fallback_clients()
+                    if attempt == max_retries - 1:
+                        logger.warning("⚠️ Semua key Groq limit. Mengaktifkan cooldown 120s")
+                        self._groq_cooldown_until = time.time() + 120
+                    continue
+                else:
+                    logger.error(f"News analysis error: {e}")
+                    break
 
         return {"sentiment": "NEUTRAL", "events": [], "summary": "Analysis failed"}
 

@@ -470,7 +470,10 @@ class RealtimeSignalMonitor:
         except (asyncio.CancelledError, KeyboardInterrupt):
             logger.info("Received stop signal")
         except Exception as e:
-            logger.error(f"Unexpected error in main loop: {e}")
+            if "AuthKeyDuplicatedError" in str(type(e)):
+                logger.error("Session stolen by another instance (AuthKeyDuplicatedError). Terminating old instance gracefully.")
+            else:
+                logger.error(f"Unexpected error in main loop: {e}")
         finally:
             self.running = False
             tasks = [monitor_task, dashboard_task, news_task, bot_command_task]
@@ -1320,6 +1323,18 @@ class RealtimeSignalMonitor:
         if not tp3:
             tp3 = price * (1.06 if side == "LONG" else 0.94)
 
+        # ── BUG FIX: Mencegah Buka Posisi Jika Market Sudah Mencapai Max TP ──
+        # Jika bot menerima sinyal namun harga saat dieksekusi sudah berada di harga TP max
+        # maka langsung batalkan / close entry (jangan dibuka)
+        max_tp = tp3 if tp3 else tp2
+        if max_tp:
+            if side == "LONG" and price >= max_tp * 0.995: # 0.5% tolerance
+                logger.info(f"  REJECT: Market price ${price:,.4f} sudah berada di max TP ${max_tp:,.4f}. Batal entry.")
+                return False
+            elif side == "SHORT" and price <= max_tp * 1.005:
+                logger.info(f"  REJECT: Market price ${price:,.4f} sudah berada di max TP ${max_tp:,.4f}. Batal entry.")
+                return False
+
         trade = {
             "symbol": pair, "side": side, "action": side,
             "entry_price": price, "quantity": pos["quantity"],
@@ -1654,13 +1669,27 @@ def main():
     )
 
     try:
+        import signal
+        def handle_sigterm(signum, frame):
+            logger.info("Received stop signal (SIGTERM/SIGINT) - shutting down gracefully...")
+            monitor.running = False
+            # We raise KeyboardInterrupt to exit the asyncio event loop cleanly
+            raise KeyboardInterrupt()
+
+        # Register signal handlers for graceful shutdown on Railway redeploys
+        signal.signal(signal.SIGTERM, handle_sigterm)
+        signal.signal(signal.SIGINT, handle_sigterm)
+
         asyncio.run(monitor.run())
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt - exiting")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        import traceback
-        traceback.print_exc()
+        if "AuthKeyDuplicatedError" in str(type(e)):
+            logger.error("❌ AuthKeyDuplicatedError: Bot is running simultaneously in multiple places. Terminating safely.")
+        else:
+            logger.error(f"Fatal error: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
